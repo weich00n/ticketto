@@ -1,0 +1,4 @@
+# The bundle, copied in before building or testing (README.md)
+src/ticketto_contracts/data/
+dist/
+build/

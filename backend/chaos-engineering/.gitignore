@@ -1,0 +1,15 @@
+# OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl
+
+# Python
+__pycache__/
+.venv/
+driver/state/
+driver/.venv/
+driver/.env
+checks/.env

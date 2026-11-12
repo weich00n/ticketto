@@ -1,0 +1,8 @@
+# Payload fields user-service reads, per message it consumes. Owned by user-service.
+# Each path must be required in the publisher's schema (tests/static/test_contracts.py).
+# Paths: `field`, `object.field`, `array[].field`.
+OrderConfirmed:
+  - user_id
+  - event_id
+EventCancelled:
+  - event_id

@@ -1,0 +1,23 @@
+# Integration tests in CI: the throwaway MySQL, Redis and RabbitMQ from
+# docker-compose.test.yml, plus a container that runs the whole pytest suite.
+#   docker compose -f ci/compose.test.yaml up --build --exit-code-from queue-pytest
+include:
+  - ../docker-compose.test.yml
+
+services:
+  queue-pytest:
+    build:
+      context: ..
+      dockerfile: ci/Dockerfile.test
+    environment:
+      TEST_MYSQL_HOST: mysql
+      TEST_MYSQL_PORT: "3306"
+      TEST_REDIS_HOST: redis
+      TEST_REDIS_PORT: "6379"
+      TEST_RABBITMQ_HOST: rabbitmq
+      TEST_RABBITMQ_PORT: "5672"
+      REQUIRE_TEST_SERVICES: "1"
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}

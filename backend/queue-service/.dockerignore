@@ -1,0 +1,16 @@
+# Keep the build context small and secrets out of images.
+.git
+.venv
+.uv-cache
+.env
+secrets/
+tests/
+docs/
+scripts/
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.md
+docker-compose*.yml
+.gitlab-ci.yml

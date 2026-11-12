@@ -1,0 +1,150 @@
+# Local development stack for checkout-service.
+#
+#   docker compose up --build
+#
+# Runs the migrations and starts:
+#   - the API            (gunicorn, :3002)
+#   - the worker         (python -m app.worker: outbox relay, sweeps, 3 consumers)
+#   - MySQL              (checkout_service, host port 3308)
+#   - the shared broker  (ticketto-rabbitmq:local, built from ../rabbitmq-service,
+#                          topology preloaded; AMQP host 5673, UI 15673)
+#   - a reservation stub (stands in for the Java reservation-service's two internal endpoints)
+#
+# The broker is built from the sibling rabbitmq-service repo, which is present in the
+# assembled g2-team5 snapshot. In a single-repo GitLab checkout, run that repo's own
+# compose first (it creates the shared broker) and drop the rabbitmq service here.
+# The host ports (3308 / 5673 / 15673 / 8081) are chosen to avoid clashing with the
+# other services' stacks when they run on the same machine.
+name: ticketto-checkout
+
+services:
+  checkout-service:
+    build:
+      context: .
+      target: runtime
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3002 --workers 2 'app.main:create_app()'"
+    # On a fresh-volume boot, MySQL's healthcheck (mysqladmin ping) can pass a
+    # couple of seconds before its caching_sha2 auth is fully warm; the first
+    # alembic connect can then fail with a transient auth error. Retry the whole
+    # container (exponential backoff) so it recovers once the DB is ready.
+    restart: on-failure
+    environment:
+      DATABASE_URL: mysql+pymysql://ticketto:ticketto-local@mysql:3306/checkout_service
+      RABBITMQ_URL: amqp://ticketto:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+      RESERVATION_BASE_URL: http://reservation-stub:8081
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      # Throwaway local secret (not a real Stripe credential): lets the webhook be
+      # exercised in local tests without a real Stripe account.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local} # gitleaks:allow
+      PORT: "3002"
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  checkout-service-worker:
+    build:
+      context: .
+      target: runtime
+    command: python -m app.worker
+    # Same fresh-volume race as the API: retry so a transient cold-start auth
+    # failure recovers once MySQL/broker are warm.
+    restart: on-failure
+    # The worker has no HTTP endpoint; the image's /health healthcheck doesn't apply.
+    healthcheck:
+      disable: true
+    environment:
+      DATABASE_URL: mysql+pymysql://ticketto:ticketto-local@mysql:3306/checkout_service
+      RABBITMQ_URL: amqp://ticketto:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+      RESERVATION_BASE_URL: http://reservation-stub:8081
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local} # gitleaks:allow
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: checkout_service
+      MYSQL_USER: ticketto
+      # Must match the ticketto:ticketto-local credential embedded in the DATABASE_URL
+      # values above (local dev only; the real deploy uses a secret manager).
+      # gitleaks:allow
+      MYSQL_PASSWORD: ticketto-local
+      MYSQL_ROOT_PASSWORD: local-root-password
+    ports:
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-plocal-root-password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - checkout-service-mysql:/var/lib/mysql
+
+  # The shared broker: the ticketto image with the full topology preloaded. Its
+  # entrypoint writes the admin user from these variables (see rabbitmq-service).
+  # gitleaks:allow
+  rabbitmq:
+    build:
+      context: ../rabbitmq-service
+    image: ticketto-rabbitmq:local
+    hostname: broker
+    environment:
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER:-ticketto}
+      RABBITMQ_ADMIN_PASS: ${RABBITMQ_ADMIN_PASS:-ticketto-local} # gitleaks:allow
+    ports:
+      # 127.0.0.1 only: without it Docker would listen on every interface. Other
+      # services' containers don't need the host ports; they use the compose network.
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    volumes:
+      - checkout-broker:/var/lib/rabbitmq
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+  # The real reservation-service needs Redis, MySQL and Queue's signing key, so a dependency-free
+  # stdlib stub stands in for it. It answers the two internal endpoints checkout calls.
+  reservation-stub:
+    image: python:3.12-slim
+    command: python /opt/stub/reservation_stub.py
+    environment:
+      RESERVATION_PORT: "8081"
+    volumes:
+      - ./scripts/dev/reservation_stub.py:/opt/stub/reservation_stub.py:ro
+    ports:
+      # Host port bumped to 18081 on this shared box (the separate CRM stack holds
+      # 8081); the container still listens on 8081, so the API reaches it at
+      # reservation-stub:8081 over the compose network either way.
+      - "127.0.0.1:18081:8081"
+
+  # docker compose run --rm tests
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/src
+    environment:
+      IT_SERVICE_URL: http://checkout-service:3002
+      IT_DATABASE_URL: mysql+pymysql://ticketto:ticketto-local@mysql:3306/checkout_service
+      IT_RABBITMQ_URL: amqp://ticketto:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local} # gitleaks:allow
+    depends_on:
+      checkout-service:
+        condition: service_healthy
+      checkout-service-worker:
+        condition: service_started
+    command: ["pytest", "tests/integration/test_flows.py", "-m", "integration", "-p", "no:cacheprovider"]
+
+volumes:
+  checkout-service-mysql:
+  checkout-broker:

@@ -1,0 +1,8 @@
+# The image only needs these files; everything else stays out of the build context.
+*
+!config/
+!topology/definitions.json
+!topology/queues.txt
+!topology/service-users.tsv
+!docker-entrypoint-ticketto.sh
+!scripts/ticketto-check.sh

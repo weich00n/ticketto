@@ -1,0 +1,3 @@
+Event 3cac9bc5-5ab3-4eb4-9c82-752afa1e5e1d at 2026-11-05 14:05:39 UTC
+  category facc81e5-e3c1-4dfd-8a73-7cf1a91c8fd9: total 1250, sold 1250, active holds 0, Redis available 0
+PASS: no overselling, no stale holds, queue slots freed

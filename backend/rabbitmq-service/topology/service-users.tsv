@@ -1,0 +1,10 @@
+# Generated from topology/messages.yaml by tools/generate_definitions.py. Do not edit.
+# Permission regexes, JSON-escaped. topic_exchange '-' = publishes nothing.
+# user	configure	write	read	topic_exchange	topic_write
+checkout-service	^checkout\\.events$	^checkout\\.events$	^checkout-service\\.[A-Za-z]+$	checkout.events	^(order\\.confirmed|order\\.refunded|refund\\.completed|refund\\.failed)$
+event-service	^event\\.events$	^event\\.events$	^$	event.events	^(event\\.cancelled|event\\.published)$
+notification-service	^$	^$	^notification-service\\.[A-Za-z]+$	-	^$
+queue-service	^$	^$	^queue-service\\.[A-Za-z]+$	-	^$
+reservation-service	^reservation\\.events$	^reservation\\.events$	^reservation-service\\.[A-Za-z]+$	reservation.events	^(event\\.sold_out|refund\\.required|reservation\\.expired)$
+ticket-service	^ticket\\.events$	^ticket\\.events$	^ticket-service\\.[A-Za-z]+$	ticket.events	^(ticket\\.issued)$
+user-service	^$	^$	^user-service\\.[A-Za-z]+$	-	^$

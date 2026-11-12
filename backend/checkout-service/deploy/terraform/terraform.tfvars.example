@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (git-ignored) and adjust.
+aws_profile          = "new-profile-name"
+image_tag            = "0ff5820"                     # the tag you push in step 4
+deploy_services      = false                         # true once the migration has run (step 6)
+
+# If you can't create IAM roles, ask a teammate for one and set it here:
+# execution_role_arn = "arn:aws:iam::708677596839:role/checkout-service-execution"
+
+# Task counts (autoscaling.tf). All three 0 stops the services; 2, 4 and 1 starts them.
+api_min_count        = 2
+api_max_count        = 4
+worker_desired_count = 1

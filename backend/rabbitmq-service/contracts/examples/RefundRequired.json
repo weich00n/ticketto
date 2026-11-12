@@ -1,0 +1,17 @@
+{
+  "message_id": "3f2b1a09-8e7d-4c6b-9a58-4f3e2d1c0b9a",
+  "message_type": "RefundRequired",
+  "schema_version": 1,
+  "occurred_at": "2026-10-21T09:30:00Z",
+  "producer": "reservation-service",
+  "payload": {
+    "hold_id": "b1e2d3c4-5f60-4718-92a3-b4c5d6e7f809",
+    "order_id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+    "user_id": "2f9c7d10-6a3b-4e55-8c21-0f4a9b7e1d33",
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "total_amount": 17600,
+    "currency": "SGD",
+    "reason": "EVENT_CANCELLED",
+    "required_at": "2026-10-21T09:30:00Z"
+  }
+}

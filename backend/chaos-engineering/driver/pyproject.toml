@@ -1,0 +1,12 @@
+[project]
+name = "chaos-driver"
+version = "0.1.0"
+description = "Buyer and organiser traffic for the chaos experiments, through the public API Gateway"
+requires-python = ">=3.12"
+dependencies = ["boto3[crt]>=1.40", "requests>=2.31"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

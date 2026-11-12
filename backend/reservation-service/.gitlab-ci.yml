@@ -1,0 +1,285 @@
+# CI/CD for reservation-service.
+#   Merge requests: lint (Checkstyle, SpotBugs) -> test (Maven suite against Redis, MySQL and RabbitMQ, SAST, secret detection,
+#                   dependency scanning, Terraform scanning) -> build image
+#   main:           the same, then push the image to ECR and deploy it to ECS
+# AWS access uses GitLab OIDC (no stored keys). Setup and variables: deploy/README.md
+# Kept in step with event-service's and user-service's pipelines so every service deploys the same way.
+#
+# rabbitmq-service also triggers this pipeline (on main) for every contract merge request that
+# affects reservation-service: then only contract-tests runs, against that merge request's contract
+# pre-release. Nothing is built or deployed in those pipelines.
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+workflow:
+  rules:
+    # Triggered by rabbitmq-service (contracts-downstream): contract-tests only. GitLab's scanning
+    # templates skip themselves on these variables; our jobs on the first.
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+      variables:
+        CONTRACT_TESTS_ONLY: "true"
+        SAST_DISABLED: "true"
+        SECRET_DETECTION_DISABLED: "true"
+        DEPENDENCY_SCANNING_DISABLED: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # A branch with an open MR already gets an MR pipeline; don't run a second one.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  interruptible: true # a newer pipeline for the same ref cancels this one (not deploys, below)
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  # Known vulnerabilities in the Maven dependencies, and misconfigurations in deploy/terraform.
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  - template: Jobs/SAST-IaC.gitlab-ci.yml
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  # Run GitLab's security scanners in merge request pipelines too, not only on main.
+  AST_ENABLE_MR_PIPELINES: "true"
+  # Dependency scanning resolves the Maven tree itself, so it must build with the same Java.
+  DS_JAVA_VERSION: "21"
+
+# ---------- shared job templates ----------
+
+# Log in to AWS with this job's GitLab OIDC token. The AWS CLI assumes $AWS_ROLE_ARN
+# from AWS_WEB_IDENTITY_TOKEN_FILE automatically. Only main can assume the role.
+.aws-oidc:
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com
+  variables:
+    AWS_ROLE_SESSION_NAME: gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID
+  before_script:
+    - echo "$GITLAB_OIDC_TOKEN" > /tmp/web-identity-token
+    - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+    - export AWS_DEFAULT_REGION="$AWS_REGION"
+
+# Every job except contract-tests: not run in pipelines rabbitmq-service triggers.
+.not-contract-tests-only:
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    - when: on_success
+
+.main-only:
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true" # a pipeline rabbitmq-service triggered on main
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------- lint ----------
+
+# What ruff and pylint do for the Python services: Checkstyle (config/checkstyle.xml: unused and
+# likely-wrong code, not layout) and SpotBugs (bug patterns; config/spotbugs-exclude.xml lists
+# what is ignored and why). Compiles only, so no services are needed.
+lint:
+  extends: .not-contract-tests-only
+  image: maven:3.9-eclipse-temurin-21
+  stage: lint
+  cache:
+    key:
+      files: [pom.xml]
+    paths: [.m2/repository]
+  script:
+    - mvn -B compile checkstyle:check spotbugs:check
+
+# ---------- test ----------
+
+# The whole suite needs a live Redis, MySQL and RabbitMQ, as with `docker compose --profile test run`.
+# They run as GitLab services (no Docker-in-Docker), reached by their aliases. RabbitMQ is the
+# plain image at the shared broker's version; BrokerIntegrationTest loads Ticketto's topology into it.
+maven-tests:
+  extends: .not-contract-tests-only
+  image: maven:3.9-eclipse-temurin-21
+  stage: test
+  services:
+    - name: redis:7
+      alias: redis
+    - name: mysql:8
+      alias: mysql
+    - name: rabbitmq:4.3.6-management
+      alias: rabbitmq
+  variables:
+    # Read by the mysql service container
+    MYSQL_ROOT_PASSWORD: root
+    MYSQL_DATABASE: reservation_db
+    # Read by the rabbitmq service container: the same admin login as the local Ticketto broker
+    RABBITMQ_DEFAULT_USER: ticketto
+    RABBITMQ_DEFAULT_PASS: ticketto-local
+    # Read by the service under test (the rest keep their application.properties defaults)
+    REDIS_HOST: redis
+    DB_HOST: mysql
+    RABBITMQ_URL: amqp://rabbitmq:5672/%2F
+    RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+  cache:
+    key:
+      files: [pom.xml]
+    paths: [.m2/repository]
+  script:
+    - mvn -B test
+    # JaCoCo's report (pom.xml) has the totals; print line coverage for the coverage regex below.
+    - >
+      awk -F, 'NR > 1 { missed += $8; covered += $9 }
+      END { printf "Line coverage: %.1f%%\n", 100 * covered / (missed + covered) }'
+      target/site/jacoco/jacoco.csv
+  coverage: '/Line coverage: (\d+\.\d+)%/'
+  artifacts:
+    when: always
+    paths: [target/site/jacoco/]
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+# The AMQP message contracts (src/contract-test/java), from rabbitmq-service's ticketto-contracts
+# package: the contract-tests Maven profile, pinned by contracts.version in pom.xml. When
+# rabbitmq-service triggers this pipeline, CONTRACTS_VERSION names its merge request's
+# pre-release, which replaces the pinned version. No services needed: the messaging beans run on
+# their own, with MySQL and Redis mocked.
+contract-tests:
+  image: maven:3.9-eclipse-temurin-21
+  stage: test
+  needs: []
+  cache:
+    key:
+      files: [pom.xml]
+    paths: [.m2/repository]
+  script:
+    - echo "ticketto-contracts ${CONTRACTS_VERSION:-as pinned in pom.xml}"
+    - >
+      mvn -B -s ci_settings.xml -Pcontract-tests test -Dtest=TickettoContractTest
+      -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true
+      ${CONTRACTS_VERSION:+-Dcontracts.version=$CONTRACTS_VERSION}
+  artifacts:
+    when: always
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+# The SAST, secret-detection, dependency-scanning and IaC jobs come from the templates included
+# above. None of them fails the pipeline on a finding: findings go to the MR's security widget,
+# and blocking a merge on them needs a merge request approval policy in the project's settings.
+sast:
+  stage: test
+
+secret_detection:
+  stage: test
+
+gemnasium-maven-dependency_scanning:
+  stage: test
+
+kics-iac-sast:
+  stage: test
+
+# ---------- build ----------
+
+.docker:
+  image: docker:29
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+
+# Merge requests: make sure the production image still builds. Nothing is pushed.
+build-image:
+  extends: .docker
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - docker build --target runtime -t "reservation-service:$CI_COMMIT_SHORT_SHA" .
+
+# main: build and push to ECR, reusing the previous image's layers as cache.
+build-and-push:
+  extends: [.docker, .aws-oidc, .main-only]
+  stage: build
+  environment:
+    name: production
+    action: prepare # gives the job the production-scoped variables without counting as a deploy
+  before_script:
+    - apk add --no-cache aws-cli
+    - !reference [.aws-oidc, before_script]
+    - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+  script:
+    - docker pull "$ECR_REPOSITORY_URI:latest" || true
+    - >
+      docker build --target runtime
+      --cache-from "$ECR_REPOSITORY_URI:latest"
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      -t "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+      -t "$ECR_REPOSITORY_URI:latest" .
+    - docker push "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+    - docker push "$ECR_REPOSITORY_URI:latest"
+
+# ---------- deploy (main only) ----------
+
+# Runs on every main pipeline once the image is in ECR.
+# The service migrates its own schema when it starts, so unlike event-service there is no
+# separate migration task: register the new task definition, roll the service onto it and
+# wait until it is healthy.
+deploy:
+  extends: .aws-oidc
+  image:
+    name: amazon/aws-cli:2.37.9
+    entrypoint: [""]
+  stage: deploy
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  interruptible: false # never cancel a deploy half-way
+  resource_group: production # one deploy at a time
+  environment:
+    name: production
+  variables:
+    IMAGE: $ECR_REPOSITORY_URI:$CI_COMMIT_SHA
+  script:
+    - |
+      set -euo pipefail
+      : "${AWS_REGION:?}" "${ECS_CLUSTER:?}" "${ECS_SERVICE:?}" "${ECS_EXECUTION_ROLE_ARN:?}"
+      : "${ENV_FILE_S3_ARN:?}" "${DB_SECRET_ARN:?}" "${ADMISSION_KEY_SECRET_ARN:?}" "${RABBITMQ_SECRET_ARN:?}" "${REDIS_SECRET_ARN:?}"
+
+      # Fill in the task definition template. ARNs contain ':' and '/', so '|' is the sed delimiter.
+      sed -e "s|__IMAGE__|$IMAGE|g" \
+          -e "s|__AWS_REGION__|$AWS_REGION|g" \
+          -e "s|__ECS_EXECUTION_ROLE_ARN__|$ECS_EXECUTION_ROLE_ARN|g" \
+          -e "s|__ENV_FILE_S3_ARN__|$ENV_FILE_S3_ARN|g" \
+          -e "s|__DB_SECRET_ARN__|$DB_SECRET_ARN|g" \
+          -e "s|__ADMISSION_KEY_SECRET_ARN__|$ADMISSION_KEY_SECRET_ARN|g" \
+          -e "s|__RABBITMQ_SECRET_ARN__|$RABBITMQ_SECRET_ARN|g" \
+          -e "s|__REDIS_SECRET_ARN__|$REDIS_SECRET_ARN|g" \
+          deploy/task-definition.json > task-definition.rendered.json
+      if grep -o '__[A-Z_]*__' task-definition.rendered.json; then
+        echo "Unfilled placeholders above: add the matching CI/CD variable" >&2
+        exit 1
+      fi
+
+      TASK_DEFINITION_ARN=$(aws ecs register-task-definition --cli-input-json file://task-definition.rendered.json \
+        --query 'taskDefinition.taskDefinitionArn' --output text)
+      echo "Registered $TASK_DEFINITION_ARN"
+
+      aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+        --task-definition "$TASK_DEFINITION_ARN" --query 'service.serviceName' --output text
+      echo "Rolling out; waiting for the service to become stable..."
+      aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+
+      # With the deployment circuit breaker, a failed rollout also ends "stable" -- on the OLD
+      # task definition. So check which one is actually running. The rollout state can lag the
+      # waiter by half a minute, so give it up to five minutes to leave IN_PROGRESS first.
+      for _ in $(seq 30); do
+        read -r running rollout <<<"$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+          --query 'services[0].deployments[?status==`PRIMARY`] | [0].[taskDefinition, rolloutState]' --output text)"
+        [[ "$rollout" != "IN_PROGRESS" ]] && break
+        sleep 10
+      done
+      if [[ "$running" != "$TASK_DEFINITION_ARN" || "$rollout" != "COMPLETED" ]]; then
+        echo "$ECS_SERVICE did not complete: running $running (rollout $rollout). ECS probably rolled back." >&2
+        exit 1
+      fi
+      echo "Deployed $TASK_DEFINITION_ARN to $ECS_SERVICE"

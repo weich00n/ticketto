@@ -1,0 +1,41 @@
+# Tool configuration only (this service is not packaged). pytest settings are in pytest.ini.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".cognito"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, bugbear, pyupgrade
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "B008",  # FastAPI's Depends()/Header() in argument defaults is the framework's intended style
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "cognito_triggers", "tests"]
+# The local alembic/ folder holds migrations; the import name means the installed library.
+known-third-party = ["alembic"]
+
+[tool.pylint.main]
+py-version = "3.12"
+recursive = true                     # lint alembic/, which has no __init__.py by design
+ignore = [".venv", "venv", ".cognito"]
+# Installed only for the contract tests (requirements-contract.txt), not in the pylint job.
+ignored-modules = ["ticketto_contracts"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint."messages control"]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "redefined-outer-name",          # every pytest fixture used as an argument triggers it
+    "too-few-public-methods",        # small classes (fakes, dataclasses) are fine
+    "wrong-import-position",         # tests/unit/conftest.py must set an env var before importing the app
+]
+
+[tool.coverage.run]
+source = ["app"]

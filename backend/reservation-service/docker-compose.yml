@@ -1,0 +1,96 @@
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: reservation_db
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 5s
+      retries: 20
+
+  # Only for the test profile, and with no published ports, so it never clashes with
+  # rabbitmq-service's broker on localhost:5672. BrokerIntegrationTest loads the topology.
+  rabbitmq:
+    profiles: ["test"]
+    image: rabbitmq:4.3.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ticketto
+      RABBITMQ_DEFAULT_PASS: ticketto-local
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      retries: 20
+
+  # Behind a profile, so `docker compose up -d` still starts only what the tests need.
+  # Run it with: docker compose --profile app up -d --build
+  # It refuses to start without Queue's public key; scripts/dev-admission-keypair.sh prints one.
+  # Messages go through the shared broker, so start rabbitmq-service's compose first: it
+  # creates the `ticketto` network this joins.
+  reservation-service:
+    profiles: ["app"]
+    build: .
+    ports:
+      - "8081:8081"
+    networks: [default, ticketto]
+    environment:
+      REDIS_HOST: redis
+      DB_HOST: mysql
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://rabbitmq:5672/%2F}
+      ADMISSION_TOKEN_ALGORITHM: ${ADMISSION_TOKEN_ALGORITHM:-RS256}
+      ADMISSION_TOKEN_PUBLIC_KEY: ${ADMISSION_TOKEN_PUBLIC_KEY:-}
+      ADMISSION_TOKEN_SECRET: ${ADMISSION_TOKEN_SECRET:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+
+  # The whole test suite, run by Maven inside a container: no local Maven or JDK needed.
+  # Run it with: docker compose --profile test run --rm test
+  #
+  # The repo is mounted so the container compiles the working tree, but target/ and ~/.m2 are
+  # named volumes - the build never writes root-owned files into the checkout, and the
+  # downloaded dependencies survive between runs.
+  test:
+    profiles: ["test"]
+    image: maven:3.9-eclipse-temurin-21
+    working_dir: /workspace
+    # `mvn clean` cannot be used here: target/ is a mount point, so deleting the directory
+    # itself fails with "Device or resource busy". Emptying it has the same effect.
+    command: ["sh", "-c", "find target -mindepth 1 -delete && mvn -B test"]
+    environment:
+      REDIS_HOST: redis
+      DB_HOST: mysql
+      RABBITMQ_URL: amqp://rabbitmq:5672/%2F
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+    volumes:
+      - .:/workspace
+      - maven-target:/workspace/target
+      - maven-repo:/root/.m2
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  maven-repo:
+  maven-target:
+
+networks:
+  ticketto:
+    external: true

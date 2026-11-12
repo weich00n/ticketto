@@ -1,0 +1,8 @@
+.env
+.env.local
+node_modules/
+.venv/
+.terraform/
+*.tfstate*
+*.tfvars
+.DS_Store

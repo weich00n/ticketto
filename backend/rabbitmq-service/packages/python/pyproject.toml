@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticketto-contracts"
+dynamic = ["version"]
+description = "Ticketto's AMQP message contracts, and the contract tests a service runs against them"
+readme = "README.md"
+requires-python = ">=3.12"
+# No pika: the recording channel stands in for it, and services bring their own client.
+# pytest is needed only by ticketto_contracts.suite, which runs inside the service's pytest.
+dependencies = ["jsonschema>=4.23,<5"]
+
+[tool.setuptools.dynamic]
+# The contract version: the bundle is copied in before building (see README.md).
+version = { file = "src/ticketto_contracts/data/VERSION" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ticketto_contracts = [
+  "py.typed",
+  "data/VERSION",
+  "data/catalogue.json",
+  "data/schemas/*.json",
+  "data/examples/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p pytester"

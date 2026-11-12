@@ -1,0 +1,27 @@
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+.DS_Store
+.cache/
+.coverage
+coverage.xml
+*-report.xml
+gl-code-quality-report.json
+task-definition.rendered.json
+worker-task-definition.rendered.json
+deploy.env
+*.log
+# OpenTofu (deploy/terraform)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl
+plan.txt

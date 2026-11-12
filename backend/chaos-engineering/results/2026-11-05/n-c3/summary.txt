@@ -1,0 +1,23 @@
+2500 buyers
+  confirmed                 1250   50.0%
+  queue_failed               927   37.1%
+  hold_failed                233    9.3%
+  order_failed                89    3.6%
+  order_expired                1    0.0%
+success rate (confirmed with ticket): 50.0%
+failure details
+    927  queue_failed: queue_closed
+    233  hold_failed: INSUFFICIENT_INVENTORY
+     89  order_failed: retries_exhausted
+step       p50 ms   p95 ms   max ms  buyers w/ errors  errors
+queue      177958   655571   658509                 3       3
+hold          284      609     1651                 0       0
+order        1820    57758    60145                90    1241
+pay          6394    12409    22809                 0       0
+settle       4464   115728   297481                 1       1
+ticket        258     5714    10944                 0       0
+errors seen (retried)
+   1240  503 RESERVATION_UNAVAILABLE
+      2  502 502
+      2  ReadTimeout
+      1  503 503

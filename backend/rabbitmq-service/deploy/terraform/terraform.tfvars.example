@@ -1,0 +1,18 @@
+# Optional: copy to terraform.tfvars (gitignored). Every value here has a default in
+# variables.tf; set only what you want to change.
+
+# name              = "rabibi"
+# instance_type     = "t4g.small"
+# availability_zone = "us-east-1a"
+
+# Who may connect to AMQP (5672). Empty at first: nothing can connect until a service is
+# deployed. Add the services' security group IDs, or a peered VPC's CIDR, then `tofu apply`.
+# amqp_allowed_sg_ids = ["sg-0123456789abcdef0"]
+# amqp_allowed_cidrs  = ["10.0.0.0/16"]
+
+# Who may open the management UI (15672) on the public IP. Empty: SSM port forwarding only.
+# It's plain HTTP, so prefer your own IP (curl -s https://checkip.amazonaws.com) over 0.0.0.0/0.
+# management_allowed_cidrs = ["203.0.113.7/32"]
+
+# Set false if the account already has an https://gitlab.com OIDC provider.
+# create_gitlab_oidc_provider = true

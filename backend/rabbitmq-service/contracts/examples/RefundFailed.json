@@ -1,0 +1,17 @@
+{
+  "message_id": "4c3b2a19-0f8e-4d7c-9b6a-5f4e3d2c1b0a",
+  "message_type": "RefundFailed",
+  "schema_version": 1,
+  "occurred_at": "2026-10-21T10:00:00Z",
+  "producer": "checkout-service",
+  "payload": {
+    "order_id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+    "user_id": "2f9c7d10-6a3b-4e55-8c21-0f4a9b7e1d33",
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "refund_id": "0b7c6d5e-4f3a-4b2c-9d1e-8f7a6b5c4d3e",
+    "amount": 17600,
+    "currency": "SGD",
+    "reason": "event_cancelled",
+    "last_error": "StripeRejectedError: charge already refunded"
+  }
+}

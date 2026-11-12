@@ -1,0 +1,108 @@
+{
+  "_comment": "Known-wrong shapes that must be dead-lettered (rejected without requeue). Each is a mistake a relay could plausibly make.",
+  "cases": {
+    "raw_outbox_row": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "event_type": "RefundRequired",
+      "schema_version": "1",
+      "aggregate_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": 57600,
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      },
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "correlation_id": "c-1"
+    },
+    "schema_version_as_string": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "message_type": "RefundRequired",
+      "schema_version": "1",
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "producer": "reservation-service",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": 57600,
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      }
+    },
+    "correlation_id_in_body": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "message_type": "RefundRequired",
+      "schema_version": 1,
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "producer": "reservation-service",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": 57600,
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      },
+      "correlation_id": "c-1"
+    },
+    "missing_order_id": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "message_type": "RefundRequired",
+      "schema_version": 1,
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "producer": "reservation-service",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": 57600,
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      }
+    },
+    "total_amount_as_string": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "message_type": "RefundRequired",
+      "schema_version": 1,
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "producer": "reservation-service",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": "57600",
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      }
+    },
+    "producer_not_a_service": {
+      "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+      "message_type": "RefundRequired",
+      "schema_version": 1,
+      "occurred_at": "2026-10-21T09:10:00Z",
+      "producer": "reservation",
+      "payload": {
+        "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+        "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "user_id": "u-1",
+        "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+        "total_amount": 57600,
+        "currency": "SGD",
+        "reason": "EVENT_CANCELLED",
+        "required_at": "2026-10-21T09:10:00Z"
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+services:
+  event-service:
+    build:
+      context: .
+      target: runtime
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3001 --workers 2 'app.main:create_app()'"
+    environment:
+      DATABASE_URL: mysql+pymysql://ticketto:ticketto@mysql:3306/event_service
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  outbox-worker:
+    build:
+      context: .
+      target: runtime
+    command: python -m app.worker
+    healthcheck:
+      disable: true
+    environment:
+      DATABASE_URL: mysql+pymysql://ticketto:ticketto@mysql:3306/event_service
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: event_service
+      MYSQL_USER: ticketto
+      MYSQL_PASSWORD: ticketto
+      MYSQL_ROOT_PASSWORD: local-root-password
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-plocal-root-password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - event-service-mysql:/var/lib/mysql
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # docker compose run --rm tests
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/src
+    environment:
+      IT_SERVICE_URL: http://event-service:3001
+      IT_DATABASE_URL: mysql+pymysql://ticketto:ticketto@mysql:3306/event_service
+      IT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      event-service:
+        condition: service_healthy
+      outbox-worker:
+        condition: service_started
+    command: ["pytest", "-m", "integration", "-p", "no:cacheprovider"]
+
+volumes:
+  event-service-mysql:

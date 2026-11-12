@@ -1,0 +1,23 @@
+# Payload fields queue-service reads, per message it consumes. Owned by queue-service.
+# Each path must be required in the publisher's schema (tests/static/test_contracts.py).
+# Paths: `field`, `object.field`, `array[].field`.
+EventPublished:
+  - event_id
+  - event_version
+  - total_capacity
+  - release_at
+  - starts_at  # read as sale_ends_at: ticket sales end when the event starts
+  - queue_join_opens_at
+EventCancelled:
+  - event_id
+  - event_version
+  - cancelled_at
+EventSoldOut:
+  - event_id
+  - sold_out_at
+OrderConfirmed:
+  - order_id
+  - admission_id
+  - user_id
+  - event_id
+  - confirmed_at

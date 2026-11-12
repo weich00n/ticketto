@@ -1,0 +1,10 @@
+# Copy to backend.hcl (git-ignored), set your AWS CLI profile, then:
+#   terraform init -backend-config=backend.hcl
+# The bucket is the team's shared state bucket (user-service, reservation-service and
+# rabbitmq-service use it too). Versioned, so earlier states can be recovered.
+bucket       = "rabibi-tfstate-708677596839"
+key          = "checkout-service/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true # S3-native lock: no DynamoDB table needed
+profile      = "new-profile-name" # your AWS CLI profile for the team account

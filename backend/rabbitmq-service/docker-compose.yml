@@ -1,0 +1,45 @@
+# The shared local Ticketto broker, with the full topology preloaded.
+#
+#   docker compose up -d --build        AMQP on localhost:5672, UI on http://localhost:15672
+#   docker compose exec rabbitmq ticketto-check
+#
+# Other services' local stacks reach it by joining the `ticketto` network (see README.md),
+# each as its own least-privilege user, e.g. for reservation-service:
+#   RABBITMQ_URL=amqp://reservation-service:ticketto-local@rabbitmq:5672/%2F  # local-only password; gitleaks:allow
+name: ticketto-broker
+
+services:
+  rabbitmq:
+    build: .
+    image: ticketto-rabbitmq:local
+    # The same node name as the EC2 broker; RabbitMQ stores its data under it.
+    hostname: broker
+    environment:
+      # Local development only. There is no guest user: use these to log in.
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER:-ticketto}
+      RABBITMQ_ADMIN_PASS: ${RABBITMQ_ADMIN_PASS:-ticketto-local}
+      # Every service user (event-service, queue-service, ...) gets this password locally.
+      RABBITMQ_SERVICE_PASS_DEFAULT: ${RABBITMQ_SERVICE_PASS_DEFAULT:-ticketto-local}
+    # Only this machine can reach these ports. Without 127.0.0.1, Docker listens on every
+    # interface, so anyone on the same Wi-Fi could log in with the well-known password above.
+    # Other services' containers don't need them: they use the ticketto network.
+    ports:
+      - "127.0.0.1:${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    # Give RabbitMQ time to shut down cleanly. A hard kill within seconds of creating a queue
+    # can lose that queue (see deploy/README.md).
+    stop_grace_period: 60s
+    # The image's own health check: node running, no memory or disk alarm.
+    networks:
+      ticketto:
+        aliases: [rabbitmq]
+    restart: unless-stopped
+
+networks:
+  ticketto:
+    name: ticketto
+
+volumes:
+  rabbitmq-data:

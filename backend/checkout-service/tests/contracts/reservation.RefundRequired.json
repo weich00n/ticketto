@@ -1,0 +1,25 @@
+{
+  "_comment": "RefundRequired as reservation-service's Phase 9 relay must publish it: OutboxWriter.refundRequired's data map in the six-field broker envelope (rabbitmq-service contracts/envelope.schema.json). message_id is reservation's UUID v3 of 'RefundRequired:<hold_id>'. correlation_id travels as the AMQP property, not in the body.",
+  "amqp": {
+    "exchange": "reservation.events",
+    "routing_key": "refund.required",
+    "type": "RefundRequired"
+  },
+  "body": {
+    "message_id": "0c7a1f3e-2b4d-3c5e-8f6a-7b8c9d0e1f2a",
+    "message_type": "RefundRequired",
+    "schema_version": 1,
+    "occurred_at": "2026-10-21T09:10:00Z",
+    "producer": "reservation-service",
+    "payload": {
+      "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c",
+      "order_id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "user_id": "u-1",
+      "event_id": "5f0c1e4a-0000-4000-8000-00000000e001",
+      "total_amount": 57600,
+      "currency": "SGD",
+      "reason": "EVENT_CANCELLED",
+      "required_at": "2026-10-21T09:10:00Z"
+    }
+  }
+}

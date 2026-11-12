@@ -1,0 +1,11 @@
+{
+  "message_id": "8d7c6b5a-4f3e-4d2c-8b1a-0f9e8d7c6b5a",
+  "message_type": "EventSoldOut",
+  "schema_version": 1,
+  "occurred_at": "2026-10-20T12:07:42Z",
+  "producer": "reservation-service",
+  "payload": {
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "sold_out_at": "2026-10-20T12:07:42Z"
+  }
+}

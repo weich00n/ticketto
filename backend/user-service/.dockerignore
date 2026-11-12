@@ -1,0 +1,14 @@
+.git
+.env
+.cognito
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+tests
+scripts
+*.md
+docker-compose.yml
+cognito_triggers
+deploy

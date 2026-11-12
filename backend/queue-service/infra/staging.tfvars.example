@@ -1,0 +1,37 @@
+# Copy to staging.tfvars (gitignored) and fill in. Apply with:
+#   tofu workspace select -or-create staging
+#   tofu apply -var-file=staging.tfvars
+
+env    = "staging"
+region = "us-east-1"
+
+vpc_id                  = "vpc-0123456789abcdef0"
+subnet_ids              = ["subnet-0123456789abcdef0", "subnet-0fedcba9876543210"]
+assign_public_ip        = true
+
+# The shared internal ALB's target group for queue-api (the gateway project's).
+api_target_group_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ticketto-queue-api/0123456789abcdef"
+# Direct access that bypasses the gateway, for debugging only. Normally empty.
+api_ingress_cidrs = []
+
+# RabbitMQ connection string, from the broker team's Secrets Manager secret.
+# Full ARN (with its -XXXXXX suffix); the JSON key only if the secret is JSON.
+rabbitmq_url_secret_arn      = "arn:aws:secretsmanager:us-east-1:123456789012:secret:rabbitmq/queue-service-AbCdEf"
+rabbitmq_url_secret_json_key = "connection_string"
+
+# Any image built by release-image on main.
+image = "registry.gitlab.com/cs302-2026/g2-team5/backend/queue-service/main:<commit sha>"
+
+# queue-api runs 2 to 4 tasks, scaled on CPU (autoscaling.tf). The admitter is always exactly 1.
+api_min_count          = 2
+api_max_count          = 4
+consumer_desired_count = 1
+
+# First apply: false. Fill in secrets + .env files, run the migration, then true.
+create_services = false
+
+# The gitlab.com OIDC provider is per account: create it in one environment only.
+create_gitlab_oidc_provider = true
+
+# Only if the account's existing gitlab.com provider uses another audience:
+# gitlab_oidc_audience = "gitlab.com"   (and use the same aud in the deploy job)

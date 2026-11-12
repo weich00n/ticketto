@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "RefundRequired.payload.schema.json",
+  "title": "RefundRequired payload",
+  "description": "Published by reservation-service for a hold confirmed before its event was cancelled. Every field is always sent. Consumers must ignore fields they don't know. Which consumers read which fields: contracts/requirements/.",
+  "type": "object",
+  "required": [
+    "hold_id",
+    "order_id",
+    "user_id",
+    "event_id",
+    "total_amount",
+    "currency",
+    "reason",
+    "required_at"
+  ],
+  "properties": {
+    "hold_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "user_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "event_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "total_amount": {
+      "description": "Integer minor units.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "currency": {
+      "const": "SGD"
+    },
+    "reason": {
+      "description": "Free text, e.g. EVENT_CANCELLED.",
+      "type": "string",
+      "minLength": 1
+    },
+    "required_at": {
+      "$ref": "#/$defs/utc"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    }
+  }
+}

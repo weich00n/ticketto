@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "OrderRefunded.payload.schema.json",
+  "title": "OrderRefunded payload",
+  "description": "Published by checkout-service once Stripe has refunded an order. Every field is always sent. Consumers must ignore fields they don't know. Which consumers read which fields: contracts/requirements/.",
+  "type": "object",
+  "required": [
+    "order_id",
+    "user_id",
+    "event_id",
+    "refund_id",
+    "amount",
+    "currency",
+    "reason"
+  ],
+  "properties": {
+    "order_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "user_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "event_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "refund_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "amount": {
+      "description": "Integer minor units.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "currency": {
+      "const": "SGD"
+    },
+    "reason": {
+      "description": "Free text, e.g. event_cancelled.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+# Throwaway dependencies for the integration tests. Separate project name and
+# ports from docker-compose.yml, so the dev stack and the test stack can run side
+# by side. No volumes: MySQL keeps its data in tmpfs, and `make test-down` wipes
+# everything.
+#
+#   make test-up      # start and wait until healthy
+#   make test-integration
+#   make test-down
+name: queue-service-test
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: queue_service
+      MYSQL_USER: queue
+      MYSQL_PASSWORD: queue
+      MYSQL_ROOT_PASSWORD: root
+      TZ: UTC
+    command: ["--default-time-zone=+00:00"]
+    ports: ["13306:3306"]
+    tmpfs: [/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uqueue", "-pqueue"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["16379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: queue
+      RABBITMQ_DEFAULT_PASS: queue
+    ports: ["15673:5672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 30

@@ -1,0 +1,18 @@
+{
+  "_comment": "ReservationExpired: reservation-service does not write this message yet and no payload schema exists. This is the minimum checkout needs (hold_id); any other fields are ignored.",
+  "amqp": {
+    "exchange": "reservation.events",
+    "routing_key": "reservation.expired",
+    "type": "ReservationExpired"
+  },
+  "body": {
+    "message_id": "7d2e4f60-1a3b-4c5d-9e8f-0a1b2c3d4e5f",
+    "message_type": "ReservationExpired",
+    "schema_version": 1,
+    "occurred_at": "2026-10-21T09:06:00Z",
+    "producer": "reservation-service",
+    "payload": {
+      "hold_id": "3f1c2b9e-8a7d-4c6e-9b1a-2d3e4f5a6b7c"
+    }
+  }
+}

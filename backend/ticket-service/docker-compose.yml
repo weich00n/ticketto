@@ -1,0 +1,110 @@
+x-ticket-env: &ticket-env
+  DATABASE_URL: mysql+pymysql://ticketto:ticketto@mysql:3306/ticket_service
+  # Ticket's own broker user, as on the team broker (rabbitmq-service has no guest user).
+  RABBITMQ_URL: amqp://ticket-service:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+  # Local development only. In AWS this comes from Secrets Manager.
+  QR_SIGNING_KEYS: ${QR_SIGNING_KEYS:-local:local-development-qr-signing-secret-change-me}
+  QR_ACTIVE_KEY_ID: ${QR_ACTIVE_KEY_ID:-local}
+  # Set to Event Service's address to fill in title, venue and time on TicketIssued.
+  EVENT_SERVICE_URL: ${EVENT_SERVICE_URL:-}
+  # No authentication yet: buyers send X-User-Id. "gateway" once API Gateway + Cognito exist.
+  AUTH_MODE: none
+  LOG_LEVEL: INFO
+
+services:
+  ticket-service:
+    build:
+      context: .
+      target: runtime
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3006 --workers 2 'app.main:create_app()'"
+    environment:
+      <<: *ticket-env
+      PORT: "3006"
+    ports:
+      - "3006:3006"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  ticket-worker:
+    build:
+      context: .
+      target: runtime
+    command: python -m app.worker
+    healthcheck:
+      disable: true
+    environment: *ticket-env
+    depends_on:
+      ticket-service:
+        condition: service_healthy # migrations have run
+      broker-setup:
+        condition: service_completed_successfully # Ticket's queues and user exist
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ticket_service
+      MYSQL_USER: ticketto
+      MYSQL_PASSWORD: ticketto
+      MYSQL_ROOT_PASSWORD: local-root-password
+    ports:
+      - "3311:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-plocal-root-password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - ticket-service-mysql:/var/lib/mysql
+
+  # The same RabbitMQ as the team broker (rabbitmq-service), without its topology: Ticket
+  # declares nothing, so broker-setup imports Ticket's queues and creates its user.
+  # UI at http://localhost:15672, user ticketto / ticketto-local. No guest user.
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ticketto
+      RABBITMQ_DEFAULT_PASS: ticketto-local # local only; gitleaks:allow
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-off: Ticket's slice of the broker topology and the ticket-service user.
+  broker-setup:
+    image: python:3.12-slim
+    command: ["python", "/broker/setup_broker.py", "--management-url", "http://rabbitmq:15672"]
+    volumes:
+      - ./scripts/broker:/broker:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # docker compose run --rm tests
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/src
+    environment:
+      IT_SERVICE_URL: http://ticket-service:3006
+      # The admin user: the tests publish as Checkout and Event would, and read the DLQs.
+      IT_RABBITMQ_URL: amqp://ticketto:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+      IT_TICKET_RABBITMQ_URL: amqp://ticket-service:ticketto-local@rabbitmq:5672/%2F # gitleaks:allow
+    depends_on:
+      ticket-service:
+        condition: service_healthy
+      ticket-worker:
+        condition: service_started
+    command: ["pytest", "-m", "integration", "-p", "no:cacheprovider"]
+
+volumes:
+  ticket-service-mysql:

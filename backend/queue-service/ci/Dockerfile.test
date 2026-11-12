@@ -1,0 +1,12 @@
+# Test runner image for the integration-tests CI job (ci/compose.test.yaml).
+# Unlike the production Dockerfile it keeps the dev dependencies and tests/.
+FROM python:3.12-slim
+ARG UV_VERSION=0.11.15
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
+WORKDIR /app
+ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never PYTHONUNBUFFERED=1
+# Dependencies first, so code changes don't invalidate this layer.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
+COPY . .
+CMD ["sh", "-c", "uv run python -m scripts.wait_for_ports mysql:3306 redis:6379 rabbitmq:5672 && uv run pytest --junitxml=/app/pytest-report.xml"]

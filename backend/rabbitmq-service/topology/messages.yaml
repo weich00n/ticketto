@@ -1,0 +1,132 @@
+# Ticketto message catalogue: the single source of truth for the broker topology.
+#
+# Each publisher has its own topic exchange, named after the service without `-service`:
+# event-service publishes to `event.events`, checkout-service to `checkout.events`, and so on.
+# A message is published to its publisher's exchange with its `routing_key` (dotted lower
+# case, unique across the whole catalogue). For every consumer listed here the broker gets:
+#   - a quorum queue `<consumer>.<Message>` bound to the publisher's exchange with that key
+#   - a dead-letter queue `<consumer>.<Message>.dlq` bound to `ticketto.dlx`
+# A message with no consumers is still accepted: the alternate exchange keeps it in
+# `ticketto.unrouted` until a consumer is added here.
+#
+# After editing, regenerate and commit the outputs (CI fails if they are stale):
+#   python -m tools.generate_definitions
+#
+# status is information only (the topology ignores it); it records how far the publisher is:
+#   implemented = the publisher's code sends it today
+#   planned     = in the publisher's own plan, not built yet
+#   proposed    = a consumer expects it, but the publisher has not agreed to send it yet
+
+broker:
+  vhost: /
+  # Tunables, applied as policies so they can change without recreating queues.
+  delivery_limit: 5           # redeliveries before a message is dead-lettered
+  holding_max_length: 50000   # cap on each DLQ and on ticketto.unrouted
+
+messages:
+  # ---- event-service ----
+  EventPublished:
+    publisher: event-service
+    routing_key: event.published
+    status: implemented
+    note: notification-service emails users who opted in to new-event emails.
+    consumers: [queue-service, reservation-service, ticket-service, notification-service]
+  EventCancelled:
+    publisher: event-service
+    routing_key: event.cancelled
+    status: implemented
+    note: >-
+      notification-service emails the event's buyers. user-service records the event as
+      cancelled so a late OrderConfirmed doesn't add it to a user's purchases.
+    consumers:
+      - queue-service
+      - reservation-service
+      - checkout-service
+      - ticket-service
+      - notification-service
+      - user-service
+
+  # ---- checkout-service ----
+  OrderConfirmed:
+    publisher: checkout-service
+    routing_key: order.confirmed
+    status: implemented
+    note: >-
+      Carries admission_id for queue-service. user-service records the event in the buyer's
+      purchased events.
+    consumers: [ticket-service, queue-service, user-service]
+  OrderRefunded:
+    publisher: checkout-service
+    routing_key: order.refunded
+    status: implemented
+    note: Sent once Stripe has refunded. notification-service emails the buyer.
+    consumers: [notification-service]
+  RefundCompleted:
+    publisher: checkout-service
+    routing_key: refund.completed
+    status: implemented
+    note: Ticket invalidates the refunded order's tickets. Buyers are emailed from OrderRefunded, which carries user_id.
+    consumers: [ticket-service]
+  RefundFailed:
+    publisher: checkout-service
+    routing_key: refund.failed
+    status: implemented
+    note: Sent when a refund can't be completed. notification-service emails the buyer.
+    consumers: [notification-service]
+
+  # ---- reservation-service ----
+  # ReservationCreated:
+  #   publisher: reservation-service
+  #   routing_key: reservation.created
+  #   status: planned
+  #   consumers: []
+  ReservationExpired:
+    publisher: reservation-service
+    routing_key: reservation.expired
+    status: implemented
+    note: Written by HoldExpiryWorker once a hold's TTL has passed.
+    consumers: [checkout-service]
+  # ReservationCancelled:
+  #   publisher: reservation-service
+  #   routing_key: reservation.cancelled
+  #   status: planned
+  #   consumers: []
+  # ReservationConfirmed:
+  #   publisher: reservation-service
+  #   routing_key: reservation.confirmed
+  #   status: planned
+  #   consumers: []
+  RefundRequired:
+    publisher: reservation-service
+    routing_key: refund.required
+    status: implemented
+    note: A hold confirmed before its event was cancelled.
+    consumers: [checkout-service]
+  EventSoldOut:
+    publisher: reservation-service
+    routing_key: event.sold_out
+    status: implemented
+    note: Written when the last hold empties the event's stock. queue-service closes the event.
+    consumers: [queue-service]
+
+  # ---- ticket-service ----
+  TicketIssued:
+    publisher: ticket-service
+    routing_key: ticket.issued
+    status: planned
+    note: >-
+      ticket-service doesn't publish it yet. notification-service emails the buyer each ticket's
+      details and QR code, and lists the order in the buyer's notifications.
+    consumers: [notification-service]
+
+  # ---- queue-service ----
+  # AdmissionGranted:
+  #   publisher: queue-service
+  #   routing_key: admission.granted
+  #   status: proposed
+  #   consumers: []
+  # AdmissionReleased:
+  #   publisher: queue-service
+  #   routing_key: admission.released
+  #   status: proposed
+  #   consumers: []

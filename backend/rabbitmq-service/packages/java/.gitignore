@@ -1,0 +1,4 @@
+src/main/resources/ticketto-contracts/
+target/
+.flattened-pom.xml
+dependency-reduced-pom.xml

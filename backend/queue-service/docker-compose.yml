@@ -1,0 +1,109 @@
+# Local development stack.
+#   make up       MySQL, Redis, RabbitMQ only (run the app with make api/admitter/consumer)
+#   make up-app   also builds the image and runs migrate, api, admitter and consumer
+# Tests don't use this file; they use docker-compose.test.yml (other ports).
+
+x-app: &app
+  build: .
+  image: queue-service:local
+  profiles: [app]
+  restart: unless-stopped  # the consumer exits on purpose if a thread crashes
+  environment:
+    MYSQL_URL: mysql+asyncmy://queue:queue@mysql:3306/queue_service
+    REDIS_URL: redis://redis:6379/0
+    RABBITMQ_URL: amqp://queue:queue@rabbitmq:5672/%2F
+    JWT_PRIVATE_KEY_PATH: /run/secrets/queue/jwt_private.pem
+    JWT_KID: queue-local-1
+    LOG_LEVEL: INFO
+    LOG_FORMAT: text
+  volumes:
+    - ./secrets:/run/secrets/queue:ro  # make keys; never baked into the image
+  depends_on:
+    mysql: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    rabbitmq: {condition: service_healthy}
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: queue_service
+      MYSQL_USER: queue
+      MYSQL_PASSWORD: queue
+      MYSQL_ROOT_PASSWORD: root
+      TZ: UTC
+    command: ["--default-time-zone=+00:00"]
+    ports: ["3306:3306"]
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uqueue", "-pqueue"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: queue
+      RABBITMQ_DEFAULT_PASS: queue
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # management UI: http://localhost:15672
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    depends_on: &after-migrate
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  admitter:
+    <<: *app
+    command: ["python", "-m", "workers.admitter"]
+    depends_on: *after-migrate
+    deploy: {replicas: 1}  # exactly one admitter, always
+    healthcheck:
+      test: ["CMD", "python", "-m", "workers.healthcheck", "admitter"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  consumer:
+    <<: *app
+    command: ["python", "-m", "workers.consumer"]
+    depends_on: *after-migrate
+    healthcheck:
+      test: ["CMD", "python", "-m", "workers.healthcheck", "consumer"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mysql-data:

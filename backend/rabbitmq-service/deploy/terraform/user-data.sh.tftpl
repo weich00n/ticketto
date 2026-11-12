@@ -1,0 +1,19 @@
+#!/bin/bash
+# First boot of the broker instance (cloud-init runs this once per instance).
+# All the logic is in deploy/boot-rabbitmq.sh, which shellcheck checks in CI; this only
+# installs it, its settings, and deploy/run-rabbitmq.sh, then runs it.
+set -euo pipefail
+
+mkdir -p /opt/ticketto
+echo '${boot_script_b64}' | base64 -d > /opt/ticketto/boot-rabbitmq.sh
+echo '${run_script_b64}' | base64 -d > /opt/ticketto/run-rabbitmq.sh
+chmod 755 /opt/ticketto/boot-rabbitmq.sh /opt/ticketto/run-rabbitmq.sh
+
+cat > /opt/ticketto/rabbitmq.env <<'ENV'
+AWS_REGION=${region}
+ECR_REPOSITORY_URI=${ecr_repository}
+RABBITMQ_SECRET_ID=${broker_secret_id}
+DATA_VOLUME_ID=${data_volume_id}
+ENV
+
+/opt/ticketto/boot-rabbitmq.sh

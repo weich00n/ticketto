@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored). Every value has a default in variables.tf; set only
+# what you want to change.
+
+# The task count is the autoscaler's (min_count to max_count, 2 to 4 by default).
+# min_count = 2
+# max_count = 4
+
+# The Redis container's --requirepass. Kept out of git: this file is gitignored.
+# redis_password = "..."
+
+# Queue's admission-token public key, as a PEM file.
+# admission_public_key_file = "../admission-public.pem"
+
+# Who may call the service on 8081, e.g. Queue's app security group.
+# client_security_group_ids = ["sg-07862c5e84a60aec9"]

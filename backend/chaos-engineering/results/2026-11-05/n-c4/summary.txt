@@ -1,0 +1,18 @@
+2500 buyers
+  confirmed                 1250   50.0%
+  queue_failed              1025   41.0%
+  hold_failed                225    9.0%
+success rate (confirmed with ticket): 50.0%
+failure details
+   1025  queue_failed: queue_closed
+    225  hold_failed: INSUFFICIENT_INVENTORY
+step       p50 ms   p95 ms   max ms  buyers w/ errors  errors
+queue       62736    82796    85702                 0       0
+hold          279      369      554                 0       0
+order        2980     9472    29711                30      31
+pay         10914    12284    23911                 0       0
+settle       7844    16017    30536                32      32
+ticket        254     5512     5734                 0       0
+errors seen (retried)
+     60  ReadTimeout
+      3  502 502

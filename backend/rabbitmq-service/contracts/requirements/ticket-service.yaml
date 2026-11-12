@@ -1,0 +1,35 @@
+# Payload fields ticket-service reads, per message it consumes. Owned by ticket-service.
+# Each path must be required in the publisher's schema (tests/static/test_contracts.py).
+# Paths: `field`, `object.field`, `array[].field`.
+EventPublished:
+  - event_id
+  - event_version
+  - title
+  - venue
+  - starts_at
+  - ticket_categories[].category_id
+  - ticket_categories[].name
+EventCancelled:
+  - event_id
+  - event_version
+  - cancellation_id
+  - cancelled_at
+  - reason
+OrderConfirmed:
+  - order_id
+  - hold_id
+  - admission_id
+  - user_id
+  - event_id
+  - category_id
+  - quantity
+  - delivery_email
+  - confirmed_at
+  - total_amount
+  - currency
+RefundCompleted:
+  - order_id
+  - event_id
+  - refund_id
+  - amount
+  - currency

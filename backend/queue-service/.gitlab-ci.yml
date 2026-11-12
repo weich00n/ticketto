@@ -1,0 +1,232 @@
+# static_analysis (ruff, pylint, mypy, SAST, secret detection, dependency audit)
+# -> test (pytest in docker compose; AMQP contract tests) -> release (image + SBOM in this
+# project's GitLab container registry) -> deploy (manual: ci/deploy.sh to ECS; see infra/README.md).
+#
+# rabbitmq-service also triggers this pipeline for every contract merge request that affects
+# Queue: then only contract-tests runs, against that merge request's contract pre-release.
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+stages:
+  - static_analysis
+  - test
+  - release
+  - deploy
+
+# Branch pipelines, plus merge request pipelines without a duplicate branch run.
+workflow:
+  # Fail fast: the first failing job cancels everything still running or pending,
+  # including the other jobs in its own stage. (Later stages never start after a
+  # failure anyway; this also stops the rest of the current stage.)
+  auto_cancel:
+    on_job_failure: all
+  rules:
+    # Triggered by rabbitmq-service (contracts-downstream): contract-tests only. The SAST and
+    # secret-detection templates skip themselves on these variables; our jobs on the first.
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+      variables:
+        CONTRACT_TESTS_ONLY: "true"
+        SAST_DISABLED: "true"
+        SECRET_DETECTION_DISABLED: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  UV_VERSION: "0.11.15"  # same as local; bump deliberately
+  UV_LINK_MODE: copy
+  UV_PYTHON_DOWNLOADS: never  # use the image's Python
+  DOCKER_VERSION: "29.6.2"
+
+# pylint and mypy import the code, so they need the locked dependencies.
+.uv:
+  image: python:3.12-slim
+  variables:
+    UV_CACHE_DIR: .uv-cache
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.uv-cache]
+  before_script:
+    - python -V
+    - python -m pip install --quiet "uv==$UV_VERSION"
+    - uv sync --frozen
+
+# Every job except contract-tests: not run in pipelines rabbitmq-service triggers.
+.not-contract-tests-only:
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    - when: on_success
+
+# --- static_analysis -----------------------------------------------------------------
+
+# `set -o pipefail` everywhere a report is piped through tee: otherwise the job
+# takes tee's exit code and passes even when the tool fails.
+
+ruff:
+  stage: static_analysis
+  extends: .not-contract-tests-only
+  image: python:3.12-slim
+  before_script:
+    - python -V
+    - python -m pip install ruff==0.17.0  # same as uv.lock
+  script:
+    - set -o pipefail
+    - ruff check . | tee ruff_report.txt
+    - ruff format --check . | tee -a ruff_report.txt
+  artifacts:
+    when: on_failure
+    paths:
+      - ruff_report.txt
+
+pylint:
+  stage: static_analysis
+  extends: [.uv, .not-contract-tests-only]
+  script:
+    - set -o pipefail
+    # Config in pyproject.toml. No --fail-under: the code is at 10/10, so any
+    # new message fails the job.
+    - uv run pylint app workers scripts tests | tee pylint_report.txt
+  artifacts:
+    when: always
+    paths:
+      - pylint_report.txt
+
+mypy:
+  stage: static_analysis
+  extends: [.uv, .not-contract-tests-only]
+  script:
+    - set -o pipefail
+    - uv run mypy | tee mypy_report.txt
+  artifacts:
+    when: on_failure
+    paths:
+      - mypy_report.txt
+
+semgrep-sast:
+  stage: static_analysis
+
+secret_detection:
+  stage: static_analysis
+
+dependency-scan:
+  stage: static_analysis
+  extends: .not-contract-tests-only
+  image: python:3.12-slim
+  before_script:
+    - python -m pip install --quiet "uv==$UV_VERSION" pip-audit
+    # No requirements.txt in the repo: export the exact locked versions from uv.lock.
+    - uv export --frozen --no-hashes --no-emit-project -o requirements.txt
+  script:
+    - set -o pipefail
+    - pip-audit --disable-pip --no-deps -r requirements.txt | tee pip_audit_report.txt
+  artifacts:
+    when: always
+    paths:
+      - pip_audit_report.txt
+  allow_failure: true
+
+# --- test ----------------------------------------------------------------------------
+
+integration-tests:
+  stage: test
+  extends: .not-contract-tests-only
+  image: docker:$DOCKER_VERSION
+  services:
+    - docker:$DOCKER_VERSION-dind
+  before_script:
+    - docker info
+  script:
+    # Unit, integration and e2e tests against real MySQL, Redis and RabbitMQ.
+    - docker compose -f ci/compose.test.yaml up --build --exit-code-from queue-pytest || EXIT=$?
+    - docker compose -f ci/compose.test.yaml cp queue-pytest:/app/pytest-report.xml . || true
+    - exit ${EXIT:-0}
+  artifacts:
+    when: always
+    reports:
+      junit: pytest-report.xml
+
+# The AMQP message contracts (tests/contract), from rabbitmq-service's ticketto-contracts
+# package (the `contract` dependency group). When rabbitmq-service triggers this pipeline,
+# CONTRACTS_VERSION names its merge request's pre-release, installed over the pinned version.
+contract-tests:
+  stage: test
+  extends: .uv
+  needs: []
+  variables:
+    UV_INDEX_TICKETTO_USERNAME: gitlab-ci-token
+    UV_INDEX_TICKETTO_PASSWORD: $CI_JOB_TOKEN
+    CONTRACTS_INDEX: https://gitlab.com/api/v4/projects/87750337/packages/pypi/simple
+  before_script:
+    - python -m pip install --quiet "uv==$UV_VERSION"
+    - uv sync --frozen --group contract
+    - |
+      if [ -n "$CONTRACTS_VERSION" ]; then
+        uv pip install --no-deps \
+          --index-url "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CONTRACTS_INDEX#https://}" \
+          "ticketto-contracts==${CONTRACTS_VERSION}"
+      fi
+    # Fails if the package is missing (the tests would only be skipped), and shows which
+    # contract version is under test.
+    - uv run --no-sync python -c 'import importlib.metadata as m; print("ticketto-contracts", m.version("ticketto-contracts"))'
+  script:
+    - uv run --no-sync pytest tests/contract -m contract -p no:cacheprovider --junitxml=contract-report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: contract-report.xml
+
+# --- release -------------------------------------------------------------------------
+
+release-image:
+  stage: release
+  extends: .not-contract-tests-only
+  image: docker:$DOCKER_VERSION
+  services:
+    - docker:$DOCKER_VERSION-dind
+  variables:
+    IMAGE: "$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG:$CI_COMMIT_SHA"
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - wget -qO install.sh https://raw.githubusercontent.com/anchore/syft/main/install.sh
+    - sh install.sh -b /usr/local/bin v1.50.0
+  script:
+    - docker build --pull -t "$IMAGE" .
+    - docker push "$IMAGE"
+    - docker save "$IMAGE" -o image.tar
+    - syft docker-archive:image.tar -o cyclonedx-json=sbom.json
+  artifacts:
+    when: on_success
+    paths:
+      - sbom.json
+
+# --- deploy -------------------------------------------------------------------------
+.deploy:
+  stage: deploy
+  image: python:3.12-slim
+  needs: [release-image]
+  variables:
+    IMAGE: "$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG:$CI_COMMIT_SHA"
+  # AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (masked, protected,
+  # scoped to the environment) are CI/CD variables; the AWS CLI reads them from the env.
+  before_script:
+    - python -m pip install --quiet awscli
+    - export AWS_DEFAULT_REGION="$AWS_REGION"
+    - aws sts get-caller-identity  # prints which IAM user deploys
+  script:
+    - sh ci/deploy.sh
+
+deploy-staging:
+  extends: .deploy
+  environment:
+    name: staging
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    # Main only, and only when someone clicks "Run" on the job in the pipeline.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true  # the pipeline shows "passed" while the deploy waits for its click

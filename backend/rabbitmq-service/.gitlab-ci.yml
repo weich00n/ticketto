@@ -1,0 +1,427 @@
+# CI/CD for rabbitmq-service, the Ticketto message broker.
+#   Merge requests: lint + static tests -> build the multi-arch image -> integration tests on it
+#   main:           the same, then copy that exact image to ECR. deploy-broker, which releases it
+#                   to the broker's EC2 instance, is a manual button on the main pipeline: a
+#                   restart disconnects every service for about 15 s (they reconnect by themselves).
+#   Contract jobs (contracts-compat, and the package jobs in docs/CONTRACT-TESTING-PLAN.md) run
+#   only when contracts/ or topology/messages.yaml change.
+# The image is built once, and the image that passed integration-test is the one that ships.
+# AWS access uses GitLab OIDC (no stored keys). The AWS jobs run only once the DEPLOY_ENABLED
+# CI variable is "true". Setup and variables: deploy/README.md
+# Kept in step with event-service's and user-service's pipelines.
+
+stages:
+  - test # ruff, pylint, shellcheck, static tests, SAST: no image needed, so fails in seconds
+  - build # build the image once
+  - integration-test # tests/integration on that image
+  - publish
+  - deploy
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # A branch with an open MR already gets an MR pipeline; don't run a second one.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  interruptible: true # a newer pipeline for the same ref cancels this one (not deploys, below)
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  AST_ENABLE_MR_PIPELINES: "true"
+  # Built once, tested, then promoted to ECR unchanged: every later job uses this image.
+  BROKER_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+# ---------- shared job templates ----------
+
+.python:
+  image: python:3.12-slim
+  cache:
+    key:
+      files: [pyproject.toml]
+    paths: [.cache/pip]
+  before_script:
+    - pip install '.[dev]'
+
+.docker:
+  image: docker:29
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+
+# Log in to AWS with this job's GitLab OIDC token. The AWS CLI assumes $AWS_ROLE_ARN
+# from AWS_WEB_IDENTITY_TOKEN_FILE automatically. Only main can assume the role.
+.aws-oidc:
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com
+  variables:
+    AWS_ROLE_SESSION_NAME: gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID
+  before_script:
+    - echo "$GITLAB_OIDC_TOKEN" > /tmp/web-identity-token
+    - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+    - export AWS_DEFAULT_REGION="$AWS_REGION"
+
+# Jobs that build, test or publish the contract packages: on merge requests and on main, only
+# when the contracts change. &contract-paths, the files that make up the message contracts, is
+# reused by contracts-compat.
+.contracts-changed:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &contract-paths
+        - contracts/**/*
+        - topology/messages.yaml
+        - packages/**/* # the contract packages and their shared conformance cases
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *contract-paths
+
+# Contract jobs that compare a merge request with its target branch, or check it downstream.
+.contracts-changed-mr:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: *contract-paths
+
+# AWS jobs run on main only once the DEPLOY_ENABLED variable is "true" (see deploy/README.md).
+.main-only:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEPLOY_ENABLED == "true"
+
+# ---------- test (no image) ----------
+
+ruff:
+  extends: .python
+  stage: test
+  script:
+    - ruff check --output-format=gitlab --output-file=gl-code-quality-report.json . || true
+    - ruff check .
+    - ruff format --check .
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+
+pylint:
+  extends: .python
+  stage: test
+  script:
+    - python -m pylint tools tests
+
+shellcheck:
+  stage: test
+  image:
+    name: koalaman/shellcheck-alpine:stable
+  script:
+    - shellcheck docker-entrypoint-ticketto.sh scripts/ticketto-check.sh scripts/ci/*.sh deploy/*.sh
+
+# definitions.json and queues.txt must match messages.yaml, and the topology must say what
+# the plan says. No broker needed, so a broken catalogue fails in seconds.
+static-tests:
+  extends: .python
+  stage: test
+  script:
+    - python -m tools.generate_definitions --check
+    - python -m pytest tests/static -p no:cacheprovider --junitxml=static-report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: static-report.xml
+
+# A merge request that changes the contracts must bump contracts/VERSION enough: patch, minor
+# or major, by the rules in tools/check_contract_compat.py. Compared with the MR's target branch.
+contracts-compat:
+  extends: [.python, .contracts-changed-mr]
+  image: python:3.12 # not -slim: needs git
+  stage: test
+  script:
+    - git fetch --depth=1 origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - python -m tools.check_contract_compat --base-ref FETCH_HEAD
+
+# The Python contract package (packages/python): the bundle is built into it, then the wheel is
+# built, installed and tested. On a merge request it is the pre-release X.Y.Z.dev<pipeline id>,
+# which contracts-prerelease uploads; on main it is X.Y.Z, which publish-contracts-python uploads.
+contracts-python:
+  extends: [.python, .contracts-changed]
+  stage: test
+  script:
+    - python -m tools.build_contracts_bundle --out packages/python/src/ticketto_contracts/data
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ]; then
+        echo "$(cat contracts/VERSION).dev${CI_PIPELINE_ID}" > packages/python/src/ticketto_contracts/data/VERSION
+      fi
+    - pip install build
+    - python -m build --wheel --outdir dist packages/python
+    - pip install dist/ticketto_contracts-*.whl
+    - python -m pylint packages/python/src/ticketto_contracts packages/python/tests/*.py
+    - python -m pytest packages/python/tests -p no:cacheprovider --junitxml=contracts-python-report.xml
+  artifacts:
+    when: always
+    # The bundle (with its version, X.Y.Z.devN on a merge request) is reused by the Java jobs.
+    paths: [dist/, packages/python/src/ticketto_contracts/data/]
+    reports:
+      junit: contracts-python-report.xml
+
+# The Java contract package (packages/java): the bundle contracts-python built is copied into it,
+# with the same version, then it's built and tested (including every conformance case).
+.contracts-java:
+  image: maven:3.9-eclipse-temurin-21
+  variables:
+    MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  cache:
+    key: contracts-java-maven
+    paths: [.m2/repository]
+  before_script:
+    # src/main/resources holds only the generated bundle (not committed), so a fresh checkout has
+    # no such directory.
+    - rm -rf packages/java/src/main/resources/ticketto-contracts
+    - mkdir -p packages/java/src/main/resources
+    - cp -r packages/python/src/ticketto_contracts/data packages/java/src/main/resources/ticketto-contracts
+    - export CONTRACTS_VERSION_BUILT="$(cat packages/java/src/main/resources/ticketto-contracts/VERSION)"
+    - cd packages/java
+
+contracts-java:
+  extends: [.contracts-java, .contracts-changed]
+  stage: test
+  needs: [contracts-python]
+  script:
+    - mvn -B verify -Drevision="$CONTRACTS_VERSION_BUILT"
+  artifacts:
+    when: always
+    paths: [packages/java/target/ticketto-contracts-*.jar] # not original-*.jar, the unshaded one
+    reports:
+      junit: packages/java/target/surefire-reports/TEST-*.xml
+
+# deploy/terraform: formatting, syntax, references and types. No AWS credentials or state
+# needed (-backend=false), so it runs on every MR; `tofu plan` against AWS is run by hand.
+tofu-validate:
+  stage: test
+  image:
+    name: ghcr.io/opentofu/opentofu:1.10
+    entrypoint: [""]
+  variables:
+    TF_PLUGIN_CACHE_DIR: "$CI_PROJECT_DIR/.cache/tofu-plugins"
+  cache:
+    key:
+      files: [deploy/terraform/.terraform.lock.hcl]
+    paths: [.cache/tofu-plugins]
+  before_script:
+    - mkdir -p "$TF_PLUGIN_CACHE_DIR"
+  script:
+    - cd deploy/terraform
+    - tofu fmt -check -diff -recursive
+    - tofu init -backend=false -input=false
+    - tofu validate
+
+# The SAST and secret-detection jobs come from the templates included above. They run in
+# the templates' default stage, test.
+
+# ---------- build ----------
+
+# amd64 for CI and laptops, arm64 for the EC2 broker host (t4g). The Dockerfile has no RUN
+# steps, so the arm64 image needs no emulation.
+build-image:
+  extends: .docker
+  stage: build
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # With dind over TLS, buildx can't create a builder straight from DOCKER_HOST and the
+    # cert variables ("could not create a builder instance with TLS data loaded from
+    # environment"). A context made from the same environment works.
+    - docker context create ci
+    - docker buildx create --use --driver docker-container ci
+    - docker buildx build --platform linux/amd64,linux/arm64 --tag "$BROKER_IMAGE" --push .
+
+# ---------- integration-test ----------
+
+# The real broker image in Docker (Testcontainers): routing, dead-lettering, persistence
+# across restarts and redeploys, auto-ack detection, overflow. See tests/integration/.
+integration-tests:
+  extends: .python
+  stage: integration-test
+  needs: [build-image]
+  services:
+    - name: docker:29-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+    TESTCONTAINERS_RYUK_DISABLED: "true"
+  before_script:
+    - pip install '.[dev]'
+    # Let the Docker SDK pull $BROKER_IMAGE from this project's registry.
+    - mkdir -p ~/.docker
+    - >
+      printf '{"auths":{"%s":{"auth":"%s"}}}' "$CI_REGISTRY"
+      "$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')"
+      > ~/.docker/config.json
+  script:
+    - python -m pytest -m integration tests/integration -p no:cacheprovider --junitxml=integration-report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: integration-report.xml
+
+# ---------- publish (main only) ----------
+
+# Upload the wheel contracts-python built and tested to this project's PyPI registry, when
+# contracts/VERSION changes on main. GitLab registry, not AWS: no DEPLOY_ENABLED gate. A version
+# that is already published is skipped. See scripts/ci/publish_contracts_python.py.
+publish-contracts-python:
+  extends: .python
+  stage: publish
+  needs: [contracts-python]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [contracts/VERSION]
+  interruptible: false # never cancel an upload half-way
+  before_script:
+    - pip install twine requests
+  script:
+    - python scripts/ci/publish_contracts_python.py
+
+# The Java package's X.Y.Z, on main. Unlike the Python one it also runs when only packages/java
+# changes, so a first release, or a fix to the package, is published; a version that is already
+# in the registry is never uploaded again.
+publish-contracts-java:
+  extends: .contracts-java
+  stage: publish
+  needs: [contracts-python, contracts-java]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [contracts/VERSION, packages/java/**/*]
+  interruptible: false # never cancel an upload half-way
+  script:
+    - |
+      if mvn -B -q -s ci_settings.xml -Dmaven.repo.local="$(mktemp -d)" dependency:get \
+          -Dartifact="com.ticketto:ticketto-contracts:${CONTRACTS_VERSION_BUILT}:pom" -Dtransitive=false \
+          -DremoteRepositories="gitlab-maven::default::${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/maven"; then
+        echo "com.ticketto:ticketto-contracts:${CONTRACTS_VERSION_BUILT} is already published; nothing to do."
+      else
+        mvn -B deploy -DskipTests -s ci_settings.xml -Drevision="$CONTRACTS_VERSION_BUILT"
+      fi
+
+# ---------- contract checks downstream (merge requests) ----------
+# A contract merge request is checked against the services it affects before it merges:
+#   contracts-prerelease       uploads the tested X.Y.Z.devN wheel (PRERELEASE_VERSION)
+#   contracts-downstream-plan  finds the affected services (tools/check_contract_compat.py) and
+#                              writes a child pipeline with one trigger per service listed in
+#                              scripts/ci/contract-test-projects.yaml
+#   contracts-downstream       runs it; each service's contract-tests runs against its default
+#                              branch with CONTRACTS_VERSION=PRERELEASE_VERSION (strategy:
+#                              depend). A failure fails this merge request for a patch or minor
+#                              change, and is a warning for a major one (allow_failure): services
+#                              pin exact versions, so they update when they move to the new major
+
+contracts-prerelease:
+  extends: [.python, .contracts-changed-mr]
+  stage: publish
+  needs: [contracts-python]
+  before_script:
+    - pip install twine requests
+  script:
+    - python scripts/ci/publish_contracts_python.py --prerelease
+  artifacts:
+    reports:
+      dotenv: prerelease.env
+
+# The Java package's pre-release, X.Y.Z.devN: the same version as the Python one, so a service's
+# CONTRACTS_VERSION means the same contracts in either language.
+contracts-prerelease-java:
+  extends: [.contracts-java, .contracts-changed-mr]
+  stage: publish
+  needs: [contracts-python, contracts-java]
+  script:
+    - mvn -B deploy -DskipTests -s ci_settings.xml -Drevision="$CONTRACTS_VERSION_BUILT"
+
+contracts-downstream-plan:
+  extends: [.python, .contracts-changed-mr]
+  image: python:3.12 # not -slim: needs git
+  stage: publish
+  needs: [contracts-prerelease, contracts-prerelease-java]
+  script:
+    - git fetch --depth=1 origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - >
+      python -m tools.plan_contract_downstream --base-ref FETCH_HEAD
+      --version "$PRERELEASE_VERSION" --out downstream.yml
+    - cat downstream.yml
+  artifacts:
+    paths: [downstream.yml]
+
+contracts-downstream:
+  extends: .contracts-changed-mr
+  stage: publish
+  needs: [contracts-downstream-plan]
+  trigger:
+    include:
+      - artifact: downstream.yml
+        job: contracts-downstream-plan
+    strategy: depend
+
+# Deletes merge requests' pre-releases older than 30 days, on main merges that change the
+# contracts, once PACKAGE_CLEANUP_TOKEN is set (see scripts/ci/cleanup_contract_prereleases.py).
+# Not a scheduled pipeline: that would also run every other main job, including the image build.
+cleanup-contract-prereleases:
+  image: python:3.12-slim
+  stage: publish
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PACKAGE_CLEANUP_TOKEN
+      changes: *contract-paths
+  allow_failure: true # housekeeping: never block a main pipeline
+  before_script:
+    - pip install requests
+  script:
+    - python scripts/ci/cleanup_contract_prereleases.py --days 30
+
+# Copy the tested multi-arch image to ECR as-is: no rebuild, same digest.
+publish-to-ecr:
+  extends: [.docker, .aws-oidc, .main-only]
+  stage: publish
+  environment:
+    name: production
+    action: prepare # gives the job the production-scoped variables without counting as a deploy
+  before_script:
+    - apk add --no-cache aws-cli
+    - !reference [.aws-oidc, before_script]
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+  script:
+    - >
+      docker buildx imagetools create
+      --tag "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+      --tag "$ECR_REPOSITORY_URI:latest"
+      "$BROKER_IMAGE"
+
+# ---------- deploy (main only, manual) ----------
+
+deploy-broker:
+  extends: .aws-oidc
+  image:
+    name: amazon/aws-cli:2.37.9
+    entrypoint: [""]
+  stage: deploy
+  needs: [publish-to-ecr]
+  # A manual button on the main pipeline: a deploy restarts the broker and disconnects every
+  # service for about 15 s, so someone chooses when. It releases that pipeline's image, already
+  # in ECR. run-rabbitmq.sh rolls back by itself if the new broker isn't healthy. Same
+  # DEPLOY_ENABLED gate as publish-to-ecr, which it needs. allow_failure keeps an undeployed
+  # pipeline green instead of "blocked".
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEPLOY_ENABLED == "true"
+      when: manual
+      allow_failure: true
+  interruptible: false # never cancel a deploy half-way
+  resource_group: production # one deploy at a time
+  environment:
+    name: production
+  script:
+    - bash scripts/ci/deploy-broker.sh

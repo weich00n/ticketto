@@ -1,0 +1,29 @@
+{
+  "message_id": "7d6c5b4a-3e2f-4a1b-8c9d-0e1f2a3b4c5d",
+  "message_type": "TicketIssued",
+  "schema_version": 1,
+  "occurred_at": "2026-10-21T10:00:00Z",
+  "producer": "ticket-service",
+  "payload": {
+    "order_id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+    "user_id": "2f9c7d10-6a3b-4e55-8c21-0f4a9b7e1d33",
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "delivery_email": "buyer@example.com",
+    "title": "Autumn Live",
+    "venue": "National Stadium",
+    "starts_at": "2026-11-20T12:00:00Z",
+    "category_name": "CAT 1",
+    "tickets": [
+      {
+        "ticket_id": "6f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9",
+        "ticket_number": 1,
+        "qr_payload": "TKT1.k1.6f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9.example-signature-not-a-real-one-0123456789"
+      },
+      {
+        "ticket_id": "0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d",
+        "ticket_number": 2,
+        "qr_payload": "TKT1.k1.0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d.example-signature-not-a-real-one-9876543210"
+      }
+    ]
+  }
+}

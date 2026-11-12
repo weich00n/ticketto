@@ -1,0 +1,102 @@
+# Local development only. In AWS the service runs on ECS and uses Amazon RDS.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: db_user
+      MYSQL_USER: ${DB_USER:-user_service}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-user_service_dev}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_dev}
+    ports:
+      - "3307:3306"   # 3307 on the host, to avoid clashing with a locally installed MySQL
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # TCP (127.0.0.1), not the socket, so it only passes once MySQL's init has finished.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  cognito-local:
+    image: jagregory/cognito-local:5.3.0
+    ports:
+      - "9229:9229"
+    volumes:
+      - ./.cognito:/app/.cognito   # persists pools and users between restarts
+
+  user-service:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      COGNITO_ENDPOINT: http://cognito-local:9229
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      cognito-local:
+        condition: service_started
+    command: >
+      sh -c "alembic upgrade head &&
+             exec python -m app.serve"
+    healthcheck:
+      # Same check as the Dockerfile's, but polled faster so `depends_on` doesn't wait 30s.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # RabbitMQ consumer (OrderConfirmed, EventCancelled). Needs the shared broker running:
+  #   (cd ../rabbitmq-service && docker compose up -d --build)
+  #   docker compose --profile worker up -d
+  user-worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      COGNITO_ENDPOINT: http://cognito-local:9229
+      RABBITMQ_URL: amqp://user-service:ticketto-local@rabbitmq:5672/%2F # local-only password; gitleaks:allow
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      disable: true
+    networks: [default, ticketto]
+    depends_on:
+      user-service:
+        condition: service_healthy # migrations have run
+
+  # Integration test runner: `docker compose run --rm tests`
+  # In the "test" profile, so a normal `docker compose up` doesn't start it.
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/src
+    environment:
+      # Reach the other containers by service name and internal port on the Compose network.
+      IT_SERVICE_URL: http://user-service:8000
+      IT_COGNITO_ENDPOINT: http://cognito-local:9229
+      IT_DB_HOST: mysql
+      IT_DB_PORT: "3306"
+    depends_on:
+      user-service:
+        condition: service_healthy
+    command: ["pytest", "-m", "integration", "-p", "no:cacheprovider"]
+
+volumes:
+  mysql-data:
+
+networks:
+  # Created by ../rabbitmq-service's compose stack; only the worker joins it.
+  ticketto:
+    external: true

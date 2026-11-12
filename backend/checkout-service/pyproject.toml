@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticketto-checkout-service"
+version = "0.1.0"
+description = "Booking + payment checkout service for Ticketto"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14,<2.0",
+  "Flask>=3.1,<4.0",
+  "gunicorn>=23.0,<24.0",
+  "pika>=1.3,<2.0",
+  "pydantic>=2.10,<3.0",
+  "PyMySQL>=1.1,<2.0",
+  # PyMySQL 2.x needs `cryptography` for caching_sha2_password / sha256_password
+  # full auth (the RSA-encrypted password exchange MySQL 8's default plugin uses
+  # when the fast/cached path is not available). Without it the connection fails
+  # with 1045 Access denied even when the credentials are correct.
+  "cryptography>=42.0,<44.0",
+  "requests>=2.32,<3.0",
+  "SQLAlchemy>=2.0,<3.0",
+  "stripe>=12.0,<13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<10",
+  "pytest-cov>=5,<8",
+  "pylint>=4.1,<5",
+  "ruff>=0.16,<0.17",
+]
+# The contract tests' public dependencies. ticketto-contracts itself comes from a private
+# registry: requirements-contract.txt.
+contract = [
+  "jsonschema>=4.23,<5",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+  "integration: needs the compose stack (API, worker, MySQL, reservation stub)",
+  "broker: needs the full live broker stack (docker compose up); exercises pika + the outbox relay",
+  "contract: AMQP message contracts, from the ticketto-contracts package (see README)",
+]
+addopts = '-m "not integration and not broker"'
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+known-third-party = ["alembic"]
+
+[tool.pylint.main]
+py-version = "3.12"
+recursive = true
+# Installed only for the contract tests (requirements-contract.txt), not in the pylint job.
+ignored-modules = ["ticketto_contracts"]
+
+[tool.pylint.imports]
+known-third-party = ["alembic"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint."messages control"]
+# Same disable list as the rest of the group (event-service): docstring noise and
+# pytest fixture naming are the only rules switched off globally; everything else
+# is handled inline at the exact site with a reason.
+disable = [
+  "missing-module-docstring",
+  "missing-class-docstring",
+  "missing-function-docstring",
+  "redefined-outer-name",
+  "too-few-public-methods",
+]
+
+[tool.coverage.run]
+source = ["app"]

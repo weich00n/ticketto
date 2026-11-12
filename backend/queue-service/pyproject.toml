@@ -1,0 +1,119 @@
+[project]
+name = "queue-service"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "asyncmy>=0.2.16",
+    "cryptography>=50.0.2",
+    "fastapi>=0.143.1",
+    "pika>=1.4.4",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.0",
+    "pyjwt[crypto]>=2.15.1",
+    "redis>=8.1.0",
+    "sqlalchemy[asyncio]>=2.1.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.0",
+    "pylint>=4.1.3",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.0",
+]
+
+# The AMQP message contract tests (tests/contract). Separate from `dev` because the package
+# comes from rabbitmq-service's private GitLab registry: only `make test-contract` and the
+# contract-tests CI job need registry credentials.
+contract = [
+    "ticketto-contracts==1.0.0",
+]
+
+[tool.uv]
+# Application, not a library: no build step, run from the repo root.
+package = false
+
+# rabbitmq-service's package registry, used for ticketto-contracts only (explicit). Credentials:
+# UV_INDEX_TICKETTO_USERNAME / UV_INDEX_TICKETTO_PASSWORD (see README.md).
+[[tool.uv.index]]
+name = "ticketto"
+url = "https://gitlab.com/api/v4/projects/87750337/packages/pypi/simple"
+explicit = true
+
+[tool.uv.sources]
+ticketto-contracts = { index = "ticketto" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --import-mode=importlib"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "unit: pure logic, no I/O, no Docker",
+    "integration: needs real Redis/MySQL/RabbitMQ containers",
+    "e2e: full flow across api, admitter and consumer",
+    "contract: AMQP message contracts, from the ticketto-contracts package",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Never touch docs: ruff would otherwise reformat code blocks inside Markdown.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app", "workers", "scripts", "tests", "migrations"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pika", "pika.*"]
+ignore_missing_imports = true
+
+# Installed only with the `contract` dependency group, not in the mypy job.
+[[tool.mypy.overrides]]
+module = ["ticketto_contracts", "ticketto_contracts.*"]
+ignore_missing_imports = true
+
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 0
+# Alembic boilerplate: dynamic `op`/`context` members and numbered module names.
+ignore-paths = ["^migrations/.*$"]
+# Installed only with the `contract` dependency group, not in the pylint job.
+ignored-modules = ["ticketto_contracts"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.similarities]
+min-similarity-lines = 10
+
+[tool.pylint."messages control"]
+disable = [
+    # Docstrings are written where they add something, not on every def.
+    "missing-function-docstring",
+    "missing-class-docstring",
+    # Design-size heuristics.
+    "too-few-public-methods",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-instance-attributes",
+    "too-many-locals",
+    "too-many-ancestors",
+    # Every `except Exception` is a deliberate catch-all at a worker boundary
+    # (per-event isolation, tick loop, consumer threads, heartbeat, healthcheck).
+    "broad-exception-caught",
+    # pytest fixtures are injected by parameter name.
+    "redefined-outer-name",
+]

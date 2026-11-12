@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (gitignored) to change a default. Every value is optional.
+
+# Set to true for the second apply, once the pipeline has registered the task definition
+# (deploy/README.md step 5).
+# create_service = true
+
+# cluster_name        = "TicketPlatform"
+# gitlab_project_path = "cs302-2026/g2-team5/frontend"
+# desired_count       = 1

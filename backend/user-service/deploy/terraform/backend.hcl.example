@@ -1,0 +1,8 @@
+# Copy to backend.hcl (gitignored), then:
+#   tofu init -backend-config=backend.hcl
+# The bucket is the team's shared state bucket (rabbitmq-service and reservation-service use it too).
+bucket       = "rabibi-tfstate-<ACCOUNT_ID>"
+key          = "user-service/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true # S3-native lock: no DynamoDB table needed

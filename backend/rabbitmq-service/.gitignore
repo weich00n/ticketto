@@ -1,0 +1,25 @@
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+.DS_Store
+.cache/
+*-report.xml
+gl-code-quality-report.json
+ssm-*.json
+*.log
+# tools/build_contracts_bundle.py output
+build/
+
+# OpenTofu (deploy/terraform): state and your own settings never go in git
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+backend.hcl

@@ -1,0 +1,26 @@
+{
+  "message_id": "3d6f0c8e-6a3b-4f7d-9a51-0b2c1e7d9f40",
+  "message_type": "EventPublished",
+  "schema_version": 1,
+  "occurred_at": "2026-10-06T10:05:00Z",
+  "producer": "event-service",
+  "payload": {
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "event_version": 2,
+    "title": "Autumn Live",
+    "starts_at": "2026-11-20T12:00:00Z",
+    "release_at": "2026-10-20T12:00:00Z",
+    "queue_join_opens_at": "2026-10-20T11:45:00Z",
+    "published_at": "2026-10-06T10:05:00Z",
+    "total_capacity": 500,
+    "ticket_categories": [
+      {
+        "category_id": "b05e8625-6d43-4252-ad2c-bda3222a769b",
+        "name": "CAT 1",
+        "price_amount": 8800,
+        "currency": "SGD",
+        "total_quantity": 500
+      }
+    ]
+  }
+}

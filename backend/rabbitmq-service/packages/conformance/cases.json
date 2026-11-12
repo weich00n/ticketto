@@ -1,0 +1,221 @@
+{
+  "about": "Cases both ticketto-contracts packages (Python and Java) must give the same verdict on. Each package's own test suite runs every case against the bundled contracts. Verdicts are compared by problem code, never by message text.",
+  "publish": {
+    "about": "assert_valid_publish(service, published). Build the baseline publish for `message` exactly as `baseline` says, apply `set` (published fields, dotted paths into `properties` and `body`), `remove` (dotted paths) and `raw_body` (replaces the body bytes), then call assert_valid_publish(`service`, ...). The result must report exactly the codes in `expect` (compared as a set): [] means it passes. Every problem is reported, not just the first.",
+    "rules": [
+      "Paths are dotted; a numeric segment indexes a list (body.payload.ticket_categories.0.name).",
+      "The publish is checked as the message named by the `type` property, or by the envelope's message_type if `type` is missing.",
+      "If that message is not in the catalogue, only unknown_message, the property checks and the envelope are checked.",
+      "If the body is not a JSON object, only body_json and the checks that don't read the body are reported.",
+      "producer, message_type_mismatch, message_id_mismatch and payload compare a body field with something else; each is checked only when that field is present. A missing field is an envelope problem, and a missing property has its own code.",
+      "Unknown payload fields are allowed: consumers must ignore them. Unknown envelope fields are not."
+    ],
+    "baseline": {
+      "service": "the message's publisher",
+      "exchange": "the message's exchange",
+      "routing_key": "the message's routing key",
+      "mandatory": true,
+      "confirmed": "true: publisher confirms were on for the channel",
+      "properties": {
+        "content_type": "application/json",
+        "delivery_mode": 2,
+        "message_id": "the example's message_id",
+        "type": "the message name",
+        "correlation_id": "corr-conformance-1"
+      },
+      "body": "the message's example from the bundle, as JSON"
+    },
+    "codes": {
+      "unknown_message": "the `type` property is not a catalogued message",
+      "not_publisher": "the service is not the message's publisher",
+      "exchange": "not the message's exchange",
+      "routing_key": "not the message's routing key",
+      "mandatory": "mandatory is not set",
+      "confirms": "publisher confirms were not on",
+      "content_type": "the content_type property is not application/json",
+      "delivery_mode": "the delivery_mode property is not 2 (persistent)",
+      "message_id": "the message_id property is missing",
+      "type": "the type property is missing",
+      "correlation_id": "the correlation_id property is missing",
+      "body_json": "the body is not a JSON object",
+      "envelope": "the body breaks the envelope schema",
+      "payload": "the payload breaks the message's payload schema",
+      "message_type_mismatch": "the envelope's message_type differs from the type property",
+      "message_id_mismatch": "the envelope's message_id differs from the message_id property",
+      "producer": "the envelope's producer is not the service"
+    },
+    "cases": [
+      { "id": "valid-EventPublished", "message": "EventPublished", "expect": [] },
+      { "id": "valid-EventCancelled", "message": "EventCancelled", "expect": [] },
+      { "id": "valid-OrderConfirmed", "message": "OrderConfirmed", "expect": [] },
+      { "id": "valid-OrderRefunded", "message": "OrderRefunded", "expect": [] },
+      { "id": "valid-RefundCompleted", "message": "RefundCompleted", "expect": [] },
+      { "id": "valid-RefundFailed", "message": "RefundFailed", "expect": [] },
+      { "id": "valid-ReservationExpired", "message": "ReservationExpired", "expect": [] },
+      { "id": "valid-RefundRequired", "message": "RefundRequired", "expect": [] },
+      { "id": "valid-EventSoldOut", "message": "EventSoldOut", "expect": [] },
+      { "id": "valid-TicketIssued", "message": "TicketIssued", "expect": [] },
+      {
+        "id": "unknown-type",
+        "message": "OrderConfirmed",
+        "set": { "properties.type": "OrderShipped", "body.message_type": "OrderShipped" },
+        "expect": ["unknown_message"]
+      },
+      {
+        "id": "wrong-service",
+        "message": "OrderConfirmed",
+        "service": "ticket-service",
+        "expect": ["not_publisher", "producer"]
+      },
+      {
+        "id": "another-publishers-exchange",
+        "message": "OrderConfirmed",
+        "set": { "exchange": "event.events" },
+        "expect": ["exchange"]
+      },
+      {
+        "id": "message-name-as-routing-key",
+        "message": "OrderConfirmed",
+        "set": { "routing_key": "OrderConfirmed" },
+        "expect": ["routing_key"]
+      },
+      {
+        "id": "dotted-instead-of-catalogued-routing-key",
+        "message": "EventSoldOut",
+        "set": { "routing_key": "event.sold.out" },
+        "expect": ["routing_key"]
+      },
+      { "id": "not-mandatory", "message": "EventPublished", "set": { "mandatory": false }, "expect": ["mandatory"] },
+      { "id": "no-confirms", "message": "EventPublished", "set": { "confirmed": false }, "expect": ["confirms"] },
+      {
+        "id": "transient",
+        "message": "EventPublished",
+        "set": { "properties.delivery_mode": 1 },
+        "expect": ["delivery_mode"]
+      },
+      {
+        "id": "wrong-content-type",
+        "message": "EventPublished",
+        "set": { "properties.content_type": "text/plain" },
+        "expect": ["content_type"]
+      },
+      { "id": "no-message-id", "message": "EventCancelled", "remove": ["properties.message_id"], "expect": ["message_id"] },
+      { "id": "no-type", "message": "EventCancelled", "remove": ["properties.type"], "expect": ["type"] },
+      { "id": "no-correlation-id", "message": "EventCancelled", "remove": ["properties.correlation_id"], "expect": ["correlation_id"] },
+      { "id": "body-not-json", "message": "RefundFailed", "raw_body": "not json", "expect": ["body_json"] },
+      { "id": "body-json-array", "message": "RefundFailed", "raw_body": "[]", "expect": ["body_json"] },
+      {
+        "id": "old-flat-format",
+        "message": "EventPublished",
+        "remove": ["body.payload", "body.producer", "body.schema_version"],
+        "expect": ["envelope"]
+      },
+      {
+        "id": "unknown-envelope-field",
+        "message": "EventPublished",
+        "set": { "body.trace_id": "abc" },
+        "expect": ["envelope"]
+      },
+      {
+        "id": "missing-required-payload-field",
+        "message": "OrderConfirmed",
+        "remove": ["body.payload.admission_id"],
+        "expect": ["payload"]
+      },
+      {
+        "id": "wrong-payload-type",
+        "message": "OrderConfirmed",
+        "set": { "body.payload.quantity": "2" },
+        "expect": ["payload"]
+      },
+      {
+        "id": "id-not-a-uuid",
+        "message": "RefundRequired",
+        "set": { "body.payload.order_id": "order-456" },
+        "expect": ["payload"]
+      },
+      {
+        "id": "nested-payload-field-missing",
+        "message": "EventPublished",
+        "remove": ["body.payload.ticket_categories.0.category_id"],
+        "expect": ["payload"]
+      },
+      {
+        "id": "unknown-payload-field-is-allowed",
+        "message": "OrderConfirmed",
+        "set": { "body.payload.promo_code": "SUMMER" },
+        "expect": []
+      },
+      {
+        "id": "type-differs-from-envelope",
+        "message": "OrderConfirmed",
+        "set": { "properties.type": "OrderRefunded" },
+        "expect": ["message_type_mismatch", "routing_key", "payload"]
+      },
+      {
+        "id": "message-id-differs-from-envelope",
+        "message": "OrderConfirmed",
+        "set": { "properties.message_id": "00000000-0000-4000-8000-000000000000" },
+        "expect": ["message_id_mismatch"]
+      },
+      {
+        "id": "wrong-producer",
+        "message": "OrderConfirmed",
+        "set": { "body.producer": "ticket-service" },
+        "expect": ["producer"]
+      },
+      {
+        "id": "several-problems-at-once",
+        "message": "OrderConfirmed",
+        "set": { "routing_key": "OrderConfirmed", "mandatory": false, "properties.delivery_mode": 1 },
+        "remove": ["body.payload.admission_id"],
+        "expect": ["routing_key", "mandatory", "delivery_mode", "payload"]
+      }
+    ]
+  },
+  "listeners": {
+    "about": "check_listener_queues(service, queues): `queues` are the queue names the service listens on. The result must report exactly `expect` (compared as a set), as code:queue pairs: missing_queue (in the catalogue, not listened on) and extra_queue (listened on, not in the catalogue for this service).",
+    "cases": [
+      {
+        "id": "exact",
+        "service": "user-service",
+        "queues": ["user-service.EventCancelled", "user-service.OrderConfirmed"],
+        "expect": []
+      },
+      {
+        "id": "missing",
+        "service": "ticket-service",
+        "queues": ["ticket-service.EventPublished", "ticket-service.EventCancelled", "ticket-service.OrderConfirmed"],
+        "expect": ["missing_queue:ticket-service.RefundCompleted"]
+      },
+      {
+        "id": "own-queue-instead-of-the-brokers",
+        "service": "queue-service",
+        "queues": ["queue-service.event-lifecycle", "queue-service.OrderConfirmed", "queue-service.EventSoldOut"],
+        "expect": [
+          "extra_queue:queue-service.event-lifecycle",
+          "missing_queue:queue-service.EventCancelled",
+          "missing_queue:queue-service.EventPublished"
+        ]
+      },
+      {
+        "id": "another-services-queue",
+        "service": "user-service",
+        "queues": ["user-service.EventCancelled", "user-service.OrderConfirmed", "ticket-service.OrderConfirmed"],
+        "expect": ["extra_queue:ticket-service.OrderConfirmed"]
+      },
+      {
+        "id": "dead-letter-queue",
+        "service": "user-service",
+        "queues": ["user-service.EventCancelled", "user-service.OrderConfirmed", "user-service.OrderConfirmed.dlq"],
+        "expect": ["extra_queue:user-service.OrderConfirmed.dlq"]
+      },
+      {
+        "id": "publisher-only-service-listens-on-nothing",
+        "service": "event-service",
+        "queues": [],
+        "expect": []
+      }
+    ]
+  }
+}

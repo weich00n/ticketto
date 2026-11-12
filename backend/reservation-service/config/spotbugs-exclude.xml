@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SpotBugs findings the lint stage ignores, each with the reason. -->
+<FindBugsFilter
+	xmlns="https://github.com/spotbugs/filter/3.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/3.1.0/spotbugs/etc/findbugsfilter.xsd">
+
+	<!-- DTOs, records and Spring beans hand out and keep the objects they are given. Copying
+	     every list and array would only cost allocations; nothing here relies on isolation. -->
+	<Match>
+		<Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+	</Match>
+
+	<!-- The echoed X-Correlation-Id is checked against [A-Za-z0-9._:-]{1,64} (isUsable) first,
+	     so it cannot carry a CR/LF or anything else into the response header. -->
+	<Match>
+		<Class name="com.ticketing.reservation_service.config.CorrelationIdFilter"/>
+		<Bug pattern="HRS_REQUEST_PARAMETER_TO_HTTP_HEADER"/>
+	</Match>
+
+	<!-- A bad admission-token key must stop the service at startup, so the constructor throws on
+	     purpose. Spring creates the bean; no subclass or finalizer can see it half-built. -->
+	<Match>
+		<Class name="com.ticketing.reservation_service.service.AdmissionTokenService"/>
+		<Bug pattern="CT_CONSTRUCTOR_THROW"/>
+	</Match>
+</FindBugsFilter>

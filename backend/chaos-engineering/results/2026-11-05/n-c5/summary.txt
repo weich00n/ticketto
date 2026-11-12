@@ -1,0 +1,12 @@
+200 buyers
+  confirmed                  200  100.0%
+success rate (confirmed with ticket): 100.0%
+step       p50 ms   p95 ms   max ms  buyers w/ errors  errors
+queue        3975     4023     4718                 0       0
+hold          279      301      457                 0       0
+order         393      655     1218                 0       0
+pay           886      949     1271                 0       0
+settle       3507     3582     4068                 1       1
+ticket        252      330     5530                 0       0
+errors seen (retried)
+      1  502 502

@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored). Only ses_sender is required.
+
+# The address (or a domain, then any address at it) verified in SES. Emails come from it.
+ses_sender = "you@example.com"
+# email_from_name = "Ticketto"
+
+# Tasks to run. Keep these at 0 until the first image is in ECR and the migration has run.
+# desired_count = 1
+# worker_desired_count = 1
+
+# Optional: titles for events published before this service started, e.g.
+# "http://event-service.ticketto.local:3001". Empty: emails say "your event" instead.
+# event_service_url = ""

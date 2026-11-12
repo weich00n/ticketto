@@ -1,0 +1,79 @@
+{
+  "family": "user-service-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "__ECS_EXECUTION_ROLE_ARN__",
+  "taskRoleArn": "__ECS_TASK_ROLE_ARN__",
+  "containerDefinitions": [
+    {
+      "name": "user-service-worker",
+      "image": "__IMAGE__",
+      "essential": true,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "__AWS_REGION__"
+        },
+        {
+          "name": "COGNITO_USER_POOL_ID",
+          "value": "__APP_COGNITO_USER_POOL_ID__"
+        },
+        {
+          "name": "DB_HOST",
+          "value": "__RDS_ENDPOINT__"
+        },
+        {
+          "name": "DB_PORT",
+          "value": "3306"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "db_user"
+        },
+        {
+          "name": "DB_SSL_CA",
+          "value": "/etc/ssl/rds/global-bundle.pem"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "INFO"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DB_USER",
+          "valueFrom": "__DB_SECRET_ARN__:username::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "__DB_SECRET_ARN__:password::"
+        },
+        {
+          "name": "RABBITMQ_URL",
+          "valueFrom": "__RABBITMQ_SECRET_ARN__:url::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/user-service",
+          "awslogs-region": "__AWS_REGION__",
+          "awslogs-stream-prefix": "user-service-worker"
+        }
+      },
+      "command": [
+        "python",
+        "-m",
+        "app.worker"
+      ]
+    }
+  ]
+}

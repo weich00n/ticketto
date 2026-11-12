@@ -1,0 +1,25 @@
+.env
+.cognito/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+.coverage
+coverage.xml
+*-report.xml
+task-definition.rendered.json
+deploy.env
+uvicorn.log
+
+# OpenTofu (deploy/terraform): state and your own settings never go in git
+.terraform/
+*.tfstate
+*.tfstate.*
+backend.hcl
+terraform.tfvars
+worker-task-definition.rendered.json
+
+# Lambda zip built by deploy/terraform (archive_file)
+deploy/terraform/.build/

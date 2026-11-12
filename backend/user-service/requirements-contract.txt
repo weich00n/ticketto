@@ -1,0 +1,8 @@
+# ticketto-contracts, the AMQP message contract tests (tests/contract), pinned. It comes from
+# rabbitmq-service's private GitLab package registry, so this file points pip only there, with
+# credentials from CONTRACTS_INDEX_USER and CONTRACTS_INDEX_TOKEN (see README.md, "Contract
+# tests"). Install with --no-deps: its dependency (jsonschema) comes from PyPI, in requirements-dev.txt.
+#
+#   pip install -r requirements-dev.txt && pip install --no-deps -r requirements-contract.txt
+--index-url https://${CONTRACTS_INDEX_USER}:${CONTRACTS_INDEX_TOKEN}@gitlab.com/api/v4/projects/87750337/packages/pypi/simple
+ticketto-contracts==2.0.0

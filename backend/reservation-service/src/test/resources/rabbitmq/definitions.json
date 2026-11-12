@@ -1,0 +1,808 @@
+{
+  "vhosts": [
+    {
+      "name": "/",
+      "description": "Ticketto",
+      "metadata": {
+        "description": "Ticketto",
+        "tags": [],
+        "default_queue_type": "quorum"
+      }
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "checkout.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "event.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "reservation.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ticket.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ticketto.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ticketto.unrouted",
+      "vhost": "/",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "checkout-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "checkout-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "checkout-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "checkout-service.RefundRequired",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "checkout-service.RefundRequired",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "checkout-service.RefundRequired.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "checkout-service.ReservationExpired",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "checkout-service.ReservationExpired",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "checkout-service.ReservationExpired.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notification-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "notification-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "notification-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notification-service.EventPublished",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "notification-service.EventPublished",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "notification-service.EventPublished.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "notification-service.OrderRefunded",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "notification-service.OrderRefunded",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "notification-service.OrderRefunded.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "queue-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "queue-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "queue-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "queue-service.EventPublished",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "queue-service.EventPublished",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "queue-service.EventPublished.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "queue-service.EventSoldOut",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "queue-service.EventSoldOut",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "queue-service.EventSoldOut.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "queue-service.OrderConfirmed",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "queue-service.OrderConfirmed",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "queue-service.OrderConfirmed.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "reservation-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "reservation-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "reservation-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "reservation-service.EventPublished",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "reservation-service.EventPublished",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "reservation-service.EventPublished.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ticket-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "ticket-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "ticket-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ticket-service.EventPublished",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "ticket-service.EventPublished",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "ticket-service.EventPublished.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ticket-service.OrderConfirmed",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "ticket-service.OrderConfirmed",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "ticket-service.OrderConfirmed.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ticket-service.RefundCompleted",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "ticket-service.RefundCompleted",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "ticket-service.RefundCompleted.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "ticketto.unrouted",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "user-service.EventCancelled",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "user-service.EventCancelled",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "user-service.EventCancelled.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    },
+    {
+      "name": "user-service.OrderConfirmed",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "ticketto.dlx",
+        "x-dead-letter-routing-key": "user-service.OrderConfirmed",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "user-service.OrderConfirmed.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "checkout.events",
+      "vhost": "/",
+      "destination": "queue-service.OrderConfirmed",
+      "destination_type": "queue",
+      "routing_key": "order.confirmed",
+      "arguments": {}
+    },
+    {
+      "source": "checkout.events",
+      "vhost": "/",
+      "destination": "ticket-service.OrderConfirmed",
+      "destination_type": "queue",
+      "routing_key": "order.confirmed",
+      "arguments": {}
+    },
+    {
+      "source": "checkout.events",
+      "vhost": "/",
+      "destination": "user-service.OrderConfirmed",
+      "destination_type": "queue",
+      "routing_key": "order.confirmed",
+      "arguments": {}
+    },
+    {
+      "source": "checkout.events",
+      "vhost": "/",
+      "destination": "notification-service.OrderRefunded",
+      "destination_type": "queue",
+      "routing_key": "order.refunded",
+      "arguments": {}
+    },
+    {
+      "source": "checkout.events",
+      "vhost": "/",
+      "destination": "ticket-service.RefundCompleted",
+      "destination_type": "queue",
+      "routing_key": "refund.completed",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "checkout-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "notification-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "queue-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "reservation-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "ticket-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "user-service.EventCancelled",
+      "destination_type": "queue",
+      "routing_key": "event.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "notification-service.EventPublished",
+      "destination_type": "queue",
+      "routing_key": "event.published",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "queue-service.EventPublished",
+      "destination_type": "queue",
+      "routing_key": "event.published",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "reservation-service.EventPublished",
+      "destination_type": "queue",
+      "routing_key": "event.published",
+      "arguments": {}
+    },
+    {
+      "source": "event.events",
+      "vhost": "/",
+      "destination": "ticket-service.EventPublished",
+      "destination_type": "queue",
+      "routing_key": "event.published",
+      "arguments": {}
+    },
+    {
+      "source": "reservation.events",
+      "vhost": "/",
+      "destination": "queue-service.EventSoldOut",
+      "destination_type": "queue",
+      "routing_key": "event.sold_out",
+      "arguments": {}
+    },
+    {
+      "source": "reservation.events",
+      "vhost": "/",
+      "destination": "checkout-service.RefundRequired",
+      "destination_type": "queue",
+      "routing_key": "refund.required",
+      "arguments": {}
+    },
+    {
+      "source": "reservation.events",
+      "vhost": "/",
+      "destination": "checkout-service.ReservationExpired",
+      "destination_type": "queue",
+      "routing_key": "reservation.expired",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "checkout-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "checkout-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "checkout-service.RefundRequired.dlq",
+      "destination_type": "queue",
+      "routing_key": "checkout-service.RefundRequired",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "checkout-service.ReservationExpired.dlq",
+      "destination_type": "queue",
+      "routing_key": "checkout-service.ReservationExpired",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "notification-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "notification-service.EventPublished.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification-service.EventPublished",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "notification-service.OrderRefunded.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification-service.OrderRefunded",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "queue-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "queue-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "queue-service.EventPublished.dlq",
+      "destination_type": "queue",
+      "routing_key": "queue-service.EventPublished",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "queue-service.EventSoldOut.dlq",
+      "destination_type": "queue",
+      "routing_key": "queue-service.EventSoldOut",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "queue-service.OrderConfirmed.dlq",
+      "destination_type": "queue",
+      "routing_key": "queue-service.OrderConfirmed",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "reservation-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "reservation-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "reservation-service.EventPublished.dlq",
+      "destination_type": "queue",
+      "routing_key": "reservation-service.EventPublished",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "ticket-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "ticket-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "ticket-service.EventPublished.dlq",
+      "destination_type": "queue",
+      "routing_key": "ticket-service.EventPublished",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "ticket-service.OrderConfirmed.dlq",
+      "destination_type": "queue",
+      "routing_key": "ticket-service.OrderConfirmed",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "ticket-service.RefundCompleted.dlq",
+      "destination_type": "queue",
+      "routing_key": "ticket-service.RefundCompleted",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "user-service.EventCancelled.dlq",
+      "destination_type": "queue",
+      "routing_key": "user-service.EventCancelled",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.dlx",
+      "vhost": "/",
+      "destination": "user-service.OrderConfirmed.dlq",
+      "destination_type": "queue",
+      "routing_key": "user-service.OrderConfirmed",
+      "arguments": {}
+    },
+    {
+      "source": "ticketto.unrouted",
+      "vhost": "/",
+      "destination": "ticketto.unrouted",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ],
+  "policies": [
+    {
+      "vhost": "/",
+      "name": "events-ae",
+      "pattern": "^[a-z]+(-[a-z]+)*\\.events$",
+      "apply-to": "exchanges",
+      "priority": 0,
+      "definition": {
+        "alternate-exchange": "ticketto.unrouted"
+      }
+    },
+    {
+      "vhost": "/",
+      "name": "consumer-queues",
+      "pattern": "^[a-z]+(-[a-z]+)*-service\\.[A-Za-z]+$",
+      "apply-to": "queues",
+      "priority": 0,
+      "definition": {
+        "delivery-limit": 5
+      }
+    },
+    {
+      "vhost": "/",
+      "name": "holding-cap",
+      "pattern": "\\.dlq$|^ticketto\\.unrouted$",
+      "apply-to": "queues",
+      "priority": 0,
+      "definition": {
+        "max-length": 50000,
+        "overflow": "reject-publish",
+        "delivery-limit": -1
+      }
+    }
+  ]
+}

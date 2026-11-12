@@ -1,0 +1,12 @@
+[project]
+name = "chaos-checker"
+version = "0.1.0"
+description = "Correctness rules checked after each chaos experiment"
+requires-python = ">=3.12"
+dependencies = ["pymysql>=1.1", "redis>=5.0"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

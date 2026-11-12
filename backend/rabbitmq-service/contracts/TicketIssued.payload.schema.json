@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "TicketIssued.payload.schema.json",
+  "title": "TicketIssued payload",
+  "description": "Published by ticket-service once per order, after it issues the order's tickets. Every field is always sent; those that allow null are null when ticket-service doesn't know the value. qr_payload works like the ticket itself, so it must never be logged. Consumers must ignore fields they don't know. Which consumers read which fields: contracts/requirements/.",
+  "type": "object",
+  "required": [
+    "order_id",
+    "user_id",
+    "event_id",
+    "delivery_email",
+    "title",
+    "venue",
+    "starts_at",
+    "category_name",
+    "tickets"
+  ],
+  "properties": {
+    "order_id": { "$ref": "#/$defs/uuid" },
+    "user_id": { "$ref": "#/$defs/uuid" },
+    "event_id": { "$ref": "#/$defs/uuid" },
+    "delivery_email": {
+      "description": "Where the tickets are sent, from OrderConfirmed. Null if it wasn't a valid address.",
+      "type": ["string", "null"],
+      "pattern": "^[^@\\s]+@[^@\\s]+$"
+    },
+    "title": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 },
+    "venue": { "type": ["string", "null"], "minLength": 1 },
+    "starts_at": {
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "category_name": { "type": ["string", "null"], "minLength": 1, "maxLength": 80 },
+    "tickets": {
+      "description": "The order's valid tickets. An order has at most 5.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["ticket_id", "ticket_number", "qr_payload"],
+        "properties": {
+          "ticket_id": { "$ref": "#/$defs/uuid" },
+          "ticket_number": {
+            "description": "This ticket's number within the order, starting at 1.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "qr_payload": {
+            "description": "The text to encode in the ticket's QR code: TKT1.<key_id>.<ticket_id>.<signature>.",
+            "type": "string",
+            "pattern": "^TKT1\\.[A-Za-z0-9_-]{1,16}\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[A-Za-z0-9_-]{43}$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  }
+}

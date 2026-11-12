@@ -1,0 +1,20 @@
+{
+  "message_id": "5d3c2b1a-7e8f-4a90-b1c2-d3e4f5a6b7c8",
+  "message_type": "OrderConfirmed",
+  "schema_version": 1,
+  "occurred_at": "2026-10-20T12:06:15Z",
+  "producer": "checkout-service",
+  "payload": {
+    "order_id": "e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b",
+    "hold_id": "b1e2d3c4-5f60-4718-92a3-b4c5d6e7f809",
+    "admission_id": "8b0e5c1a-4f2d-4c1e-9a77-2d6f0b3e9c41",
+    "user_id": "2f9c7d10-6a3b-4e55-8c21-0f4a9b7e1d33",
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "category_id": "b05e8625-6d43-4252-ad2c-bda3222a769b",
+    "quantity": 2,
+    "delivery_email": "buyer@example.com",
+    "total_amount": 17600,
+    "currency": "SGD",
+    "confirmed_at": "2026-10-20T12:06:15Z"
+  }
+}

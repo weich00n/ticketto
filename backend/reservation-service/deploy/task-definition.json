@@ -1,0 +1,48 @@
+{
+  "family": "reservation-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": { "operatingSystemFamily": "LINUX", "cpuArchitecture": "X86_64" },
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "__ECS_EXECUTION_ROLE_ARN__",
+  "containerDefinitions": [
+    {
+      "name": "reservation-service",
+      "image": "__IMAGE__",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8081, "protocol": "tcp" }],
+      "environmentFiles": [{ "value": "__ENV_FILE_S3_ARN__", "type": "s3" }],
+      "environment": [
+        { "name": "ADMISSION_TOKEN_ALGORITHM", "value": "RS256" }
+      ],
+      "secrets": [
+        { "name": "DB_USERNAME", "valueFrom": "__DB_SECRET_ARN__:username::" },
+        { "name": "DB_PASSWORD", "valueFrom": "__DB_SECRET_ARN__:password::" },
+        { "name": "ADMISSION_TOKEN_PUBLIC_KEY", "valueFrom": "__ADMISSION_KEY_SECRET_ARN__" },
+        { "name": "RABBITMQ_URL", "valueFrom": "__RABBITMQ_SECRET_ARN__:url::" },
+        { "name": "REDIS_PASSWORD", "valueFrom": "__REDIS_SECRET_ARN__:password::" }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/8081 && printf \"GET /health HTTP/1.0\\r\\n\\r\\n\" >&3 && read -r line <&3 && [[ $line == *\" 200 \"* ]]"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/reservation-service",
+          "awslogs-region": "__AWS_REGION__",
+          "awslogs-stream-prefix": "reservation-service"
+        }
+      }
+    }
+  ]
+}

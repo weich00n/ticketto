@@ -1,0 +1,5 @@
+bucket       = "rabibi-tfstate-708677596839"
+key          = "shared-gateway/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true

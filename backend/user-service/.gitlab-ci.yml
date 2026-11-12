@@ -1,0 +1,274 @@
+# CI/CD for user-service.
+#   Merge requests: lint -> test (unit, integration, SAST, secret detection) -> build image
+#   main:           the same, then push the image to ECR and deploy to ECS
+# AWS access uses GitLab OIDC (no stored keys). Setup and variables: deploy/README.md
+#
+# rabbitmq-service also triggers this pipeline (on main) for every contract merge request that
+# affects user-service: then only contract-tests runs, against that merge request's contract
+# pre-release. Nothing is built or deployed in those pipelines.
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+workflow:
+  rules:
+    # Triggered by rabbitmq-service (contracts-downstream): contract-tests only. The SAST and
+    # secret-detection templates skip themselves on these variables; our jobs on the first.
+    - if: $CI_PIPELINE_SOURCE == "pipeline"
+      variables:
+        CONTRACT_TESTS_ONLY: "true"
+        SAST_DISABLED: "true"
+        SECRET_DETECTION_DISABLED: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # A branch with an open MR already gets an MR pipeline; don't run a second one.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  interruptible: true # a newer pipeline for the same ref cancels this one (not deploys, below)
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Run GitLab's security scanners in merge request pipelines too, not only on main.
+  AST_ENABLE_MR_PIPELINES: "true"
+
+# ---------- shared job templates ----------
+
+.python:
+  image: python:3.12-slim
+  cache:
+    key:
+      files: [requirements.txt, requirements-dev.txt]
+    paths: [.cache/pip]
+  before_script:
+    - pip install -r requirements-dev.txt
+
+# Every job except contract-tests: not run in pipelines rabbitmq-service triggers.
+.not-contract-tests-only:
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    - when: on_success
+
+# Log in to AWS with this job's GitLab OIDC token. The AWS CLI assumes $AWS_ROLE_ARN
+# from AWS_WEB_IDENTITY_TOKEN_FILE automatically. Only main can assume the role.
+.aws-oidc:
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com
+  variables:
+    AWS_ROLE_SESSION_NAME: gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID
+  before_script:
+    - echo "$GITLAB_OIDC_TOKEN" > /tmp/web-identity-token
+    - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+    - export AWS_DEFAULT_REGION="$AWS_REGION"
+
+.main-only:
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true" # a pipeline rabbitmq-service triggered on main
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------- lint ----------
+
+ruff:
+  extends: [.python, .not-contract-tests-only]
+  stage: lint
+  script:
+    # Code Quality report for the MR widget, then the human-readable check that decides pass/fail.
+    - ruff check --output-format=gitlab --output-file=gl-code-quality-report.json . || true
+    - ruff check .
+    - ruff format --check .
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+
+pylint:
+  extends: [.python, .not-contract-tests-only]
+  stage: lint
+  script:
+    - python -m pylint app tests alembic cognito_triggers # settings in pyproject.toml; any message fails
+
+# ---------- test ----------
+
+unit-tests:
+  extends: [.python, .not-contract-tests-only]
+  stage: test
+  script:
+    - >
+      python -m pytest tests/unit -p no:cacheprovider
+      --cov --cov-report=term --cov-report=xml:coverage.xml
+      --junitxml=unit-report.xml
+  coverage: '/^TOTAL\s+\d+\s+\d+\s+(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      junit: unit-report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+# MySQL and cognito-local run as GitLab services (no Docker-in-Docker). The script creates
+# a Cognito pool, migrates, starts the service and runs tests/integration against it.
+integration-tests:
+  extends: [.python, .not-contract-tests-only]
+  stage: test
+  services:
+    - name: mysql:8.4
+      alias: mysql
+    - name: jagregory/cognito-local:5.3.0
+      alias: cognito-local
+  variables:
+    # Read by the mysql service container
+    MYSQL_DATABASE: db_user
+    MYSQL_USER: user_service
+    MYSQL_PASSWORD: user_service_ci
+    MYSQL_ROOT_PASSWORD: root_ci
+    # Read by the service under test
+    DB_HOST: mysql
+    DB_PORT: "3306"
+    DB_NAME: db_user
+    DB_USER: user_service
+    DB_PASSWORD: user_service_ci
+    AWS_REGION: us-east-1
+    AWS_ACCESS_KEY_ID: local # cognito-local ignores credentials, boto3 needs some
+    AWS_SECRET_ACCESS_KEY: local
+    COGNITO_ENDPOINT: http://cognito-local:9229
+    # Read by tests/integration/conftest.py (IT_COGNITO_USER_POOL_ID is set by the script)
+    IT_SERVICE_URL: http://127.0.0.1:8000
+    IT_COGNITO_ENDPOINT: http://cognito-local:9229
+    IT_DB_HOST: mysql
+    IT_DB_PORT: "3306"
+    IT_DB_NAME: db_user
+    IT_DB_USER: user_service
+    IT_DB_PASSWORD: user_service_ci
+  script:
+    - bash scripts/ci/run-integration-tests.sh
+  artifacts:
+    when: always
+    paths: [uvicorn.log]
+    reports:
+      junit: integration-report.xml
+
+# The AMQP message contracts (tests/contract), from rabbitmq-service's ticketto-contracts
+# package, pinned in requirements-contract.txt. When rabbitmq-service triggers this pipeline,
+# CONTRACTS_VERSION names its merge request's pre-release, installed over the pinned version.
+contract-tests:
+  extends: .python
+  stage: test
+  needs: []
+  variables:
+    CONTRACTS_INDEX_USER: gitlab-ci-token
+    CONTRACTS_INDEX_TOKEN: $CI_JOB_TOKEN
+    CONTRACTS_INDEX: gitlab.com/api/v4/projects/87750337/packages/pypi/simple
+  before_script:
+    - pip install -r requirements-dev.txt
+    - pip install --no-deps -r requirements-contract.txt
+    - |
+      if [ -n "$CONTRACTS_VERSION" ]; then
+        pip install --no-deps --index-url "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CONTRACTS_INDEX}" \
+          "ticketto-contracts==${CONTRACTS_VERSION}"
+      fi
+    # Fails if the package is missing (the tests would only be skipped), and shows which
+    # contract version is under test.
+    - python -c 'import importlib.metadata as m; print("ticketto-contracts", m.version("ticketto-contracts"))'
+  script:
+    - python -m pytest tests/contract -m contract -p no:cacheprovider --junitxml=contract-report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: contract-report.xml
+
+# The SAST and secret-detection jobs come from the templates included above.
+sast:
+  stage: test
+
+secret_detection:
+  stage: test
+
+# ---------- build ----------
+
+.docker:
+  image: docker:29
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+
+# Merge requests: make sure the production image still builds. Nothing is pushed.
+build-image:
+  extends: .docker
+  stage: build
+  rules:
+    - if: $CONTRACT_TESTS_ONLY == "true"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - docker build --target runtime -t "user-service:$CI_COMMIT_SHORT_SHA" .
+
+# main: build and push to ECR, reusing the previous image's layers as cache.
+build-and-push:
+  extends: [.docker, .aws-oidc, .main-only]
+  stage: build
+  environment:
+    name: production
+    action: prepare # gives the job the production-scoped variables without counting as a deploy
+  before_script:
+    - apk add --no-cache aws-cli
+    - !reference [.aws-oidc, before_script]
+    - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+  script:
+    - docker pull "$ECR_REPOSITORY_URI:latest" || true
+    - >
+      docker build --target runtime
+      --cache-from "$ECR_REPOSITORY_URI:latest"
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      -t "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+      -t "$ECR_REPOSITORY_URI:latest" .
+    - docker push "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+    - docker push "$ECR_REPOSITORY_URI:latest"
+
+# ---------- deploy (main only) ----------
+
+.ecs:
+  extends: [.aws-oidc, .main-only]
+  image:
+    name: amazon/aws-cli:2.37.9
+    entrypoint: [""]
+  stage: deploy
+  interruptible: false # never cancel a deploy half-way
+  resource_group: production # one deploy at a time
+  environment:
+    name: production
+
+# Register the new task definition and run `alembic upgrade head` as a one-off task.
+migrate:
+  extends: .ecs
+  environment:
+    name: production
+    action: prepare
+  variables:
+    IMAGE: $ECR_REPOSITORY_URI:$CI_COMMIT_SHA
+  script:
+    - bash scripts/ci/ecs-migrate.sh
+  artifacts:
+    reports:
+      dotenv: deploy.env # passes the task definition ARNs to the deploy job
+
+# Roll the API and worker ECS services onto the new task definitions and wait until healthy.
+deploy:
+  extends: .ecs
+  needs: [migrate]
+  script:
+    - bash scripts/ci/ecs-deploy.sh

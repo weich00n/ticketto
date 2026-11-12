@@ -1,0 +1,115 @@
+# Local development and the integration tests. In AWS the worker and the API are ECS services
+# (deploy/terraform).
+#
+# Needs the shared broker first:  (cd ../rabbitmq-service && docker compose up -d --build)
+#   docker compose up -d --build            # worker, API, MySQL, Mailpit, user-service stub
+#   docker compose run --rm tests           # integration tests
+#   open http://localhost:8026              # every email lands in Mailpit
+
+x-notification-env: &notification-env
+  DATABASE_URL: mysql+pymysql://notification_service:notification_local@mysql:3306/db_notification # local-only password; gitleaks:allow
+  RABBITMQ_URL: amqp://notification-service:ticketto-local@rabbitmq:5672/%2F # local-only password; gitleaks:allow
+  USER_SERVICE_URL: ${USER_SERVICE_URL:-http://user-service-stub:8000}
+  EVENT_SERVICE_URL: ${EVENT_SERVICE_URL:-}
+  EMAIL_BACKEND: smtp
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  EMAIL_FROM: Ticketto <notifications@ticketto.local>
+  EMAIL_RETRY_BASE_SECONDS: "2"
+  LOG_LEVEL: INFO
+
+services:
+  # Migrates, then runs the worker. Short waits, so the tests don't sit idle.
+  notification-worker:
+    build:
+      context: .
+      target: runtime
+    command: ["sh", "-c", "alembic upgrade head && exec python -m app.worker"]
+    environment:
+      <<: *notification-env
+      WORKER_RUN_SECONDS: "10"
+      WORKER_POLL_SECONDS: "3"
+      WORKER_RETRY_SECONDS: "3"
+    networks: [default, ticketto]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      user-service-stub:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  # The notifications API. In AWS the gateway sets X-User-Sub; send it yourself here:
+  #   curl -H 'X-User-Sub: <sub>' localhost:18080/api/v1/notifications
+  notification-api:
+    build:
+      context: .
+      target: runtime
+    environment: *notification-env
+    ports:
+      - "18080:8082"
+    depends_on:
+      notification-worker:
+        condition: service_started # the worker runs the migrations
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: db_notification
+      MYSQL_USER: notification_service
+      MYSQL_PASSWORD: notification_local
+      MYSQL_ROOT_PASSWORD: local-root-password
+    ports:
+      - "3312:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - notification-service-mysql:/var/lib/mysql
+
+  # Answers user-service's three internal calls; the tests set its users. Point
+  # USER_SERVICE_URL at the real user-service instead to try both together.
+  user-service-stub:
+    image: python:3.12-slim
+    command: ["python", "/stubs/user_service.py"]
+    volumes:
+      - ./tests/stubs:/stubs:ro
+    ports:
+      - "18000:8000"
+
+  # Catches every email: http://localhost:8026
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8026:8025"
+      - "1026:1025"
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    volumes:
+      - .:/src
+    environment:
+      IT_RABBITMQ_URL: amqp://ticketto:ticketto-local@rabbitmq:5672/%2F # local-only password; gitleaks:allow
+      IT_STUB_URL: http://user-service-stub:8000
+      IT_MAILPIT_URL: http://mailpit:8025
+      IT_API_URL: http://notification-api:8082
+    networks: [default, ticketto]
+    depends_on:
+      notification-worker:
+        condition: service_started
+      notification-api:
+        condition: service_started
+    command: ["pytest", "-m", "integration", "-p", "no:cacheprovider"]
+
+volumes:
+  notification-service-mysql:
+
+networks:
+  # Created by ../rabbitmq-service's compose stack.
+  ticketto:
+    external: true

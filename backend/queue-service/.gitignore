@@ -1,0 +1,25 @@
+.venv
+
+# Python / tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# Local config and keys
+*.env
+secrets/
+
+# deployment ops
+ops/
+
+# OpenTofu (infra/): local state and real variable values stay out of git
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfstate.d/
+infra/*.tfvars
+!infra/*.tfvars.example
+infra/staging.plan

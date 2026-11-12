@@ -1,0 +1,14 @@
+{
+  "message_id": "9b2e4f71-1c0a-4d3e-8f6b-5a7c2d9e0f13",
+  "message_type": "EventCancelled",
+  "schema_version": 1,
+  "occurred_at": "2026-10-06T11:00:00Z",
+  "producer": "event-service",
+  "payload": {
+    "event_id": "a14ec682-62f5-46db-b94a-a8d95435e274",
+    "event_version": 3,
+    "cancellation_id": "c41a7e2d-5f86-4b09-9e3c-7d2b1a0f6e58",
+    "cancelled_at": "2026-10-06T11:00:00Z",
+    "reason": "Event cancelled by organiser."
+  }
+}

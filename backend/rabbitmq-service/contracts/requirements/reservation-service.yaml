@@ -1,0 +1,23 @@
+# Payload fields reservation-service reads, per message it consumes. Owned by reservation-service.
+# Each path must be required in the publisher's schema (tests/static/test_contracts.py).
+# Paths: `field`, `object.field`, `array[].field`.
+EventPublished:
+  - event_id
+  - event_version
+  - title
+  - starts_at
+  - release_at
+  - queue_join_opens_at
+  - published_at
+  - total_capacity
+  - ticket_categories[].category_id
+  - ticket_categories[].name
+  - ticket_categories[].price_amount
+  - ticket_categories[].currency
+  - ticket_categories[].total_quantity
+EventCancelled:
+  - event_id
+  - event_version
+  - cancellation_id
+  - cancelled_at
+  - reason

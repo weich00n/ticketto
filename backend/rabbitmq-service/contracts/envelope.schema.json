@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.schema.json",
+  "title": "Ticketto message envelope",
+  "description": "Every message body on a publisher's exchange (event.events, checkout.events, ...). The message-specific content is in `payload` and has its own <MessageName>.payload.schema.json. This is the format event-service publishes and queue-service parses (app/messaging/schemas.py).",
+  "type": "object",
+  "required": ["message_id", "message_type", "schema_version", "occurred_at", "producer", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "message_id": {
+      "description": "UUID. Also sent as the AMQP message_id property; consumers deduplicate on it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "message_type": {
+      "description": "PascalCase message name from topology/messages.yaml. Also the AMQP type property. Not the routing key: that is the message's dotted routing_key.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z]+$"
+    },
+    "schema_version": {
+      "description": "Version of this message's payload schema. Consumers reject versions they don't know.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurred_at": {
+      "description": "UTC, ISO 8601 with a Z suffix.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "producer": {
+      "description": "The publishing service, as named in topology/messages.yaml.",
+      "type": "string",
+      "pattern": "^[a-z]+(-[a-z]+)*-service$"
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

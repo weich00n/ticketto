@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored). Every value has a default in variables.tf; set only
+# what you want to change.
+
+# 0 until the first image is in ECR, then 1. Back to 0 to stop paying for the two tasks.
+# desired_count = 1
+
+# Who may call the API on 3006, e.g. Checkout's security group for /internal/v1.
+# client_security_group_ids = ["sg-..."]
+
+# From address of ticket emails (an Amazon SES email identity; see ../README.md, Email).
+# email_sender      = "ticketto.alerts@gmail.com"
+# email_sender_name = "Ticketto"

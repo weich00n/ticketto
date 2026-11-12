@@ -1,0 +1,11 @@
+# Used instead of the root .dockerignore when building ci/Dockerfile.test
+# (BuildKit picks <Dockerfile>.dockerignore). Tests and scripts stay in.
+.git
+.venv
+.uv-cache
+.env
+secrets/
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache

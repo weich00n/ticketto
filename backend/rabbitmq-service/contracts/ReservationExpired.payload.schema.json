@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ReservationExpired.payload.schema.json",
+  "title": "ReservationExpired payload",
+  "description": "Published by reservation-service (HoldExpiryWorker) once a hold's TTL has passed. Every field is always sent. Consumers must ignore fields they don't know. Which consumers read which fields: contracts/requirements/.",
+  "type": "object",
+  "required": [
+    "hold_id",
+    "admission_id",
+    "user_id",
+    "event_id",
+    "category_id",
+    "quantity",
+    "expired_at"
+  ],
+  "properties": {
+    "hold_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "admission_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "user_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "event_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "category_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expired_at": {
+      "$ref": "#/$defs/utc"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    }
+  }
+}

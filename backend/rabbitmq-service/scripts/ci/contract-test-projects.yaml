@@ -1,0 +1,35 @@
+# Services whose contract tests run against every contract merge request that affects them
+# (contracts-downstream; Phase E of docs/CONTRACT-TESTING-PLAN.md).
+#
+# Add a service once its pipeline has a `contract-tests` job that:
+#   - runs when $CI_PIPELINE_SOURCE == "pipeline" (triggered from rabbitmq-service)
+#   - installs ticketto-contracts==$CONTRACTS_VERSION when that variable is set (Java:
+#     mvn test -Dcontracts.version=$CONTRACTS_VERSION; see packages/java/README.md)
+#   - is the only job that runs in such a pipeline (every other job: `when: never`)
+# In that service's project (GitLab settings):
+#   - The person whose merge request triggers it needs the Developer role.
+#   - Settings > CI/CD > Variables > "Minimum role to use pipeline variables": Developer (or
+#     the contract authors' role). The trigger passes CONTRACTS_VERSION, a pipeline variable,
+#     and newer projects allow no one by default: "insufficient permissions to set pipeline
+#     variables".
+#
+#   <service>:
+#     project: <group>/<project>   # its GitLab project path
+#     branch: main                 # optional; default main
+#
+# A service that is affected but not listed is reported as "not wired yet"; it doesn't fail.
+projects:
+  queue-service:
+    project: cs302-2026/g2-team5/backend/queue-service
+  event-service:
+    project: cs302-2026/g2-team5/backend/event-service
+  checkout-service:
+    project: cs302-2026/g2-team5/backend/checkout-service
+  ticket-service:
+    project: cs302-2026/g2-team5/backend/ticket-service
+  user-service:
+    project: cs302-2026/g2-team5/backend/user-service
+  notification-service:
+    project: cs302-2026/g2-team5/backend/notification-service
+  reservation-service:
+    project: cs302-2026/g2-team5/backend/reservation-service

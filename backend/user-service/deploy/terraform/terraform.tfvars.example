@@ -1,0 +1,11 @@
+# Optional: copy to terraform.tfvars (gitignored). Every value here has a default in
+# variables.tf; set only what you want to change.
+
+# 0 until the first image is in ECR and the migration has run (plan.md, phase 4). Then 1.
+# desired_count = 1
+
+# Set false once another service has created the ticketto.local namespace.
+# create_service_discovery_namespace = true
+
+# true before `tofu destroy` if the ECR repository still holds images.
+# allow_destroy_data = false

@@ -1,0 +1,7 @@
+# Copy to backend.hcl (gitignored) and put in the bucket from deploy/README.md step 1, then:
+#   tofu init -backend-config=backend.hcl
+bucket       = "rabibi-tfstate-<ACCOUNT_ID>"
+key          = "rabbitmq-service/terraform.tfstate"
+region       = "us-east-1"
+encrypt      = true
+use_lockfile = true # S3-native lock: no DynamoDB table needed

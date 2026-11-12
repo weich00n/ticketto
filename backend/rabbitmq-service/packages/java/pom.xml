@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Ticketto's AMQP message contracts and the contract tests a Java service runs against them.
+       The version is the contracts' version: build with -Drevision=$(cat contracts/VERSION), after
+       copying the bundle into src/main/resources/ticketto-contracts (see README.md). -->
+  <groupId>com.ticketto</groupId>
+  <artifactId>ticketto-contracts</artifactId>
+  <version>${revision}</version>
+  <name>ticketto-contracts</name>
+  <description>Ticketto's AMQP message contracts, and the contract tests a service runs against them</description>
+
+  <properties>
+    <revision>0.0.0-SNAPSHOT</revision>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <jackson.version>2.17.2</jackson.version>
+    <json-schema-validator.version>1.5.6</json-schema-validator.version>
+    <junit.version>6.0.3</junit.version>
+    <junit-platform.version>6.0.3</junit-platform.version>
+    <spring-rabbit.version>4.1.1</spring-rabbit.version>
+    <!-- GitLab package registry of rabbitmq-service (set by CI) -->
+    <gitlab.maven.url>${env.CI_API_V4_URL}/projects/${env.CI_PROJECT_ID}/packages/maven</gitlab.maven.url>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>${json-schema-validator.version}</version>
+    </dependency>
+    <!-- json-schema-validator logs through SLF4J; it is shaded, this isn't. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.16</version>
+    </dependency>
+    <!-- The service brings its own JUnit and, if it uses it, Spring AMQP. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>${junit.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.amqp</groupId>
+      <artifactId>spring-rabbit</artifactId>
+      <version>${spring-rabbit.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-testkit</artifactId>
+      <version>${junit-platform.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <distributionManagement>
+    <repository>
+      <id>gitlab-maven</id>
+      <url>${gitlab.maven.url}</url>
+    </repository>
+    <snapshotRepository>
+      <id>gitlab-maven</id>
+      <url>${gitlab.maven.url}</url>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
+      <plugin>
+        <!-- Jackson 2 and networknt json-schema-validator (and what they need) go inside the jar,
+             relocated, and out of the published POM: a service's own versions of them, such as
+             reservation-service's json-schema-validator 3, can't clash with ours. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>true</createDependencyReducedPom>
+              <artifactSet>
+                <includes>
+                  <include>com.fasterxml.jackson.core:*</include>
+                  <include>com.fasterxml.jackson.dataformat:*</include>
+                  <include>com.networknt:*</include>
+                  <include>com.ethlo.time:*</include>
+                  <include>org.yaml:snakeyaml</include>
+                </includes>
+              </artifactSet>
+              <relocations>
+                <relocation>
+                  <pattern>com.fasterxml.jackson</pattern>
+                  <shadedPattern>com.ticketto.contracts.shaded.jackson</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.networknt</pattern>
+                  <shadedPattern>com.ticketto.contracts.shaded.networknt</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.ethlo</pattern>
+                  <shadedPattern>com.ticketto.contracts.shaded.ethlo</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.yaml.snakeyaml</pattern>
+                  <shadedPattern>com.ticketto.contracts.shaded.snakeyaml</shadedPattern>
+                </relocation>
+              </relocations>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>module-info.class</exclude>
+                    <!-- Java 11/17 variants of a few Jackson classes: relocation doesn't reach
+                         them, and this jar isn't multi-release, so they would never load. -->
+                    <exclude>META-INF/versions/**</exclude>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!-- The published POM gets the real version instead of ${revision}. -->
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+        <version>1.6.0</version>
+        <configuration>
+          <flattenMode>resolveCiFriendliesOnly</flattenMode>
+          <updatePomFile>true</updatePomFile>
+        </configuration>
+        <executions>
+          <execution>
+            <id>flatten</id>
+            <phase>process-resources</phase>
+            <goals><goal>flatten</goal></goals>
+          </execution>
+          <execution>
+            <id>flatten-clean</id>
+            <phase>clean</phase>
+            <goals><goal>clean</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

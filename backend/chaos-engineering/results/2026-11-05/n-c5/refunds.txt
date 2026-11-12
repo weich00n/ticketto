@@ -1,0 +1,2 @@
+  200  order CANCELLED, 1 refund(s) SUCCEEDED
+PASS: 200/200 paid orders have exactly one succeeded refund

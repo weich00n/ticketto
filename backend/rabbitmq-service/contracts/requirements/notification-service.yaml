@@ -1,0 +1,31 @@
+# Payload fields notification-service reads, per message it consumes. Owned by
+# notification-service. Each path must be required in the publisher's schema
+# (tests/static/test_contracts.py). Paths: `field`, `object.field`, `array[].field`.
+EventPublished:
+  - event_id
+  - title
+  - starts_at
+EventCancelled:
+  - event_id
+OrderRefunded:
+  - order_id
+  - user_id
+  - event_id
+  - amount
+RefundFailed:
+  - order_id
+  - user_id
+  - event_id
+  - refund_id
+  - amount
+TicketIssued:
+  - order_id
+  - user_id
+  - event_id
+  - delivery_email
+  - title
+  - venue
+  - starts_at
+  - category_name
+  - tickets[].ticket_number
+  - tickets[].qr_payload

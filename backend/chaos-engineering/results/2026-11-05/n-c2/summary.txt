@@ -1,0 +1,19 @@
+2500 buyers
+  confirmed                 1250   50.0%
+  queue_failed              1045   41.8%
+  hold_failed                205    8.2%
+success rate (confirmed with ticket): 50.0%
+failure details
+   1045  queue_failed: queue_closed
+    205  hold_failed: INSUFFICIENT_INVENTORY
+step       p50 ms   p95 ms   max ms  buyers w/ errors  errors
+queue      103169   116947   120639                 2       2
+hold          277      430    40760                30     290
+order        2425     8121    49714                37     360
+pay          7583    14449    20570                 0       0
+settle       7321    62545    85055                 1       1
+ticket        261     5564    10884                 0       0
+errors seen (retried)
+    359  503 RESERVATION_UNAVAILABLE
+    290  503 DEPENDENCY_UNAVAILABLE
+      4  502 502

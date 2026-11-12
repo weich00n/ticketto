@@ -1,0 +1,173 @@
+# CI/CD for the frontend.
+#   Merge requests: lint, typecheck, format -> security scans -> build the image
+#   main:           the same, then push the image to ECR and deploy it to ECS
+# AWS access uses GitLab OIDC (no stored keys). Setup and variables: deploy/README.md
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # A branch with an open MR already gets an MR pipeline; don't run a second one.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  interruptible: true # a newer pipeline for the same ref cancels this one (not deploys, below)
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  NEXT_TELEMETRY_DISABLED: "1"
+  # Run GitLab's security scanners in merge request pipelines too, not only on main.
+  AST_ENABLE_MR_PIPELINES: "true"
+
+# ---------- shared job templates ----------
+
+.node:
+  image: node:22-alpine
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm]
+  before_script:
+    - npm ci
+
+# Log in to AWS with this job's GitLab OIDC token. The AWS CLI assumes $AWS_ROLE_ARN
+# from AWS_WEB_IDENTITY_TOKEN_FILE automatically. Only main can assume the role.
+.aws-oidc:
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://gitlab.com
+  variables:
+    AWS_ROLE_SESSION_NAME: gitlab-$CI_PROJECT_ID-$CI_PIPELINE_ID
+  before_script:
+    # A File-type variable, a stray space or quotes all end up as AWS's "Request ARN is
+    # invalid"; show what the job received instead (an ARN is not a secret).
+    - |
+      stripped=$(printf '%s' "$AWS_ROLE_ARN" | tr -d '[:space:]')
+      if [ "$AWS_ROLE_ARN" != "$stripped" ] || ! printf '%s' "$stripped" | grep -Eq '^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$'; then
+        echo "AWS_ROLE_ARN is not a role ARN (length ${#AWS_ROLE_ARN}). Bytes received:" >&2
+        printf '%s' "$AWS_ROLE_ARN" | od -c | head -8 >&2
+        exit 1
+      fi
+    - echo "$GITLAB_OIDC_TOKEN" > /tmp/web-identity-token
+    - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/web-identity-token
+    - export AWS_DEFAULT_REGION="$AWS_REGION"
+
+# AWS jobs run on main only once the DEPLOY_ENABLED variable is "true" (see deploy/README.md).
+.main-only:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEPLOY_ENABLED == "true"
+
+# ---------- lint ----------
+
+eslint:
+  extends: .node
+  stage: lint
+  script:
+    - npm run lint
+
+prettier:
+  extends: .node
+  stage: lint
+  script:
+    - npm run format:check
+
+typecheck:
+  extends: .node
+  stage: lint
+  script:
+    - npm run typecheck
+
+# Unit tests for the logic that doesn't need a browser or a backend. The
+# end-to-end suite (e2e/) runs against the deployed site and is run by hand.
+unit-tests:
+  extends: .node
+  stage: test
+  script:
+    - npm test
+
+# Reports known vulnerabilities in the packages the app ships. Advisory only: a new
+# advisory for a dependency shouldn't block unrelated work.
+dependency-audit:
+  extends: .node
+  stage: test
+  before_script: []
+  script:
+    - npm audit --omit=dev --audit-level=high
+  allow_failure: true
+
+# The SAST and secret-detection jobs come from the templates included above.
+sast:
+  stage: test
+
+secret_detection:
+  stage: test
+
+# ---------- build ----------
+
+.docker:
+  image: docker:29
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+
+# Checks that the image builds (this also runs `next build`), without pushing it.
+build-image:
+  extends: .docker
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DEPLOY_ENABLED != "true"
+  script:
+    - docker build --target runtime -t "frontend:$CI_COMMIT_SHORT_SHA" .
+
+# main: build and push to ECR, reusing the previous image's layers as cache.
+build-and-push:
+  extends: [.docker, .aws-oidc, .main-only]
+  stage: build
+  environment:
+    name: production
+    action: prepare # gives the job the production-scoped variables without counting as a deploy
+  before_script:
+    - apk add --no-cache aws-cli
+    - !reference [.aws-oidc, before_script]
+    - aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URI%%/*}"
+  script:
+    - docker pull "$ECR_REPOSITORY_URI:latest" || true
+    - >
+      docker build --target runtime
+      --cache-from "$ECR_REPOSITORY_URI:latest"
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      -t "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+      -t "$ECR_REPOSITORY_URI:latest" .
+    - docker push "$ECR_REPOSITORY_URI:$CI_COMMIT_SHA"
+    - docker push "$ECR_REPOSITORY_URI:latest"
+
+# ---------- deploy (main only) ----------
+
+# Register the new task definition and roll the ECS service onto it.
+deploy:
+  extends: [.aws-oidc, .main-only]
+  image:
+    name: amazon/aws-cli:2.37.9
+    entrypoint: [""]
+  stage: deploy
+  interruptible: false # never cancel a deploy half-way
+  resource_group: production # one deploy at a time
+  environment:
+    name: production
+  variables:
+    IMAGE: $ECR_REPOSITORY_URI:$CI_COMMIT_SHA
+  script:
+    - bash scripts/ci/ecs-deploy.sh

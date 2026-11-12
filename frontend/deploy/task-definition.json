@@ -1,0 +1,57 @@
+{
+  "family": "frontend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "__ECS_EXECUTION_ROLE_ARN__",
+  "containerDefinitions": [
+    {
+      "name": "frontend",
+      "image": "__IMAGE__",
+      "essential": true,
+      "portMappings": [{ "containerPort": 3000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "AWS_REGION", "value": "__AWS_REGION__" },
+        { "name": "COGNITO_USER_POOL_ID", "value": "__COGNITO_USER_POOL_ID__" },
+        { "name": "COGNITO_CLIENT_ID", "value": "__COGNITO_CLIENT_ID__" },
+        { "name": "API_GATEWAY_URL", "value": "__API_GATEWAY_URL__" },
+        { "name": "USE_DEMO_DATA", "value": "__USE_DEMO_DATA__" },
+        {
+          "name": "STRIPE_PUBLISHABLE_KEY",
+          "value": "__STRIPE_PUBLISHABLE_KEY__"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "COGNITO_CLIENT_SECRET",
+          "valueFrom": "__COGNITO_SECRET_ARN__:client_secret::"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/frontend",
+          "awslogs-region": "__AWS_REGION__",
+          "awslogs-stream-prefix": "frontend"
+        }
+      }
+    }
+  ]
+}

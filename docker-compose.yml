@@ -1,0 +1,441 @@
+# The whole Ticketto system on one machine.
+#
+#   docker compose up -d --build        first build takes a while (Maven, npm, pip)
+#   open http://localhost:3000
+#
+# One MySQL (a database and user per service), the shared broker with its full topology,
+# Redis for Queue and for Reservation, cognito-local in place of Cognito, Mailpit in place of
+# SES, and a small gateway in place of API Gateway. See README.md for the test accounts and
+# for what needs Stripe or AWS keys.
+#
+# Every password here is a local-only throwaway value. gitleaks:allow
+# Only the ports a person opens in a browser are published, and only on 127.0.0.1, so this
+# stack does not clash with a service's own compose stack holding 3306/5672/6379.
+name: ticketto
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-mysql-ready: &mysql-ready
+  mysql: {condition: service_healthy}
+
+x-broker-ready: &broker-ready
+  rabbitmq: {condition: service_healthy}
+
+# One image for Queue's API, workers and migrations.
+x-queue-image: &queue-image
+  image: queue-service:local
+
+# Short intervals so `depends_on: service_healthy` doesn't wait for the images' 30s checks.
+x-health: &health
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 10s
+
+services:
+  # --- Infrastructure -----------------------------------------------------------------
+
+  mysql:
+    image: mysql:8.4
+    <<: *restart
+    command: ["--default-time-zone=+00:00"]  # Queue stores and compares times in UTC
+    environment:
+      MYSQL_ROOT_PASSWORD: local-root-password
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./local/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP, not the socket, so it only passes once the init scripts have run.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      <<: *health
+      start_period: 30s
+
+  # The team broker image: topology preloaded, one least-privilege user per service.
+  rabbitmq:
+    build: ./backend/rabbitmq-service
+    image: ticketto-rabbitmq:local
+    hostname: broker
+    <<: *restart
+    environment:
+      RABBITMQ_ADMIN_USER: ticketto
+      RABBITMQ_ADMIN_PASS: ticketto-local
+      RABBITMQ_SERVICE_PASS_DEFAULT: ticketto-local
+    ports:
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      <<: *health
+      timeout: 20s
+      start_period: 30s
+
+  # Queue and Reservation each have their own Redis in AWS; kept apart here too.
+  queue-redis:
+    image: redis:7.4-alpine
+    <<: *restart
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *health
+
+  reservation-redis:
+    image: redis:7.4-alpine
+    <<: *restart
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *health
+
+  # Catches every email (tickets, notifications): http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    <<: *restart
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+
+  # Copies the committed pool (test users, organiser group, app client) into the volume on
+  # the first start only, so sign-ups and refresh tokens never touch the repo's files.
+  cognito-seed:
+    image: alpine:3.20
+    command: ["sh", "-c", "[ -f /data/db/local_0h5xM2Lr.json ] || cp -r /seed/. /data/"]
+    volumes:
+      - ./local/cognito:/seed:ro
+      - cognito-data:/data
+
+  cognito-local:
+    image: jagregory/cognito-local:5.3.0
+    <<: *restart
+    ports:
+      - "127.0.0.1:${COGNITO_PORT:-9229}:9229"
+    volumes:
+      - cognito-data:/app/.cognito
+    depends_on:
+      cognito-seed: {condition: service_completed_successfully}
+
+  # Queue signs admission tokens; Reservation verifies them with the public half. This
+  # makes a throwaway key pair on the first start, so no key is ever committed.
+  admission-keys:
+    <<: *queue-image
+    user: "0"
+    command: ["python", "/scripts/admission_keys.py", "/keys", "queue-local-1"]
+    volumes:
+      - ./local/scripts:/scripts:ro
+      - admission-keys:/keys
+
+  # --- Gateway and frontend -----------------------------------------------------------
+
+  gateway:
+    image: python:3.12-slim
+    <<: *restart
+    command: ["python", "/gateway/gateway.py"]
+    environment:
+      COGNITO_USER_POOL_ID: &pool-id local_0h5xM2Lr
+      COGNITO_CLIENT_ID: &client-id 2em1qa8q0phca53jnkar4m0ij
+    volumes:
+      - ./local/gateway:/gateway:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      <<: *health
+
+  frontend:
+    build: ./frontend
+    <<: *restart
+    environment:
+      AWS_REGION: us-east-1
+      COGNITO_USER_POOL_ID: *pool-id
+      COGNITO_CLIENT_ID: *client-id
+      COGNITO_CLIENT_SECRET: ""
+      COGNITO_ENDPOINT: http://cognito-local:9229
+      # The Next.js server calls the gateway; the browser only ever talks to Next.js.
+      API_GATEWAY_URL: http://gateway:8080
+      USE_DEMO_DATA: "false"
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      gateway: {condition: service_healthy}
+      cognito-local: {condition: service_started}
+
+  # --- Event Service ------------------------------------------------------------------
+
+  event-service:
+    build: {context: ./backend/event-service, target: runtime}
+    <<: *restart
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3001 --workers 2 'app.main:create_app()'"
+    environment: &event-env
+      DATABASE_URL: mysql+pymysql://event_service:ticketto-local@mysql:3306/event_service
+      RABBITMQ_URL: amqp://event-service:ticketto-local@rabbitmq:5672/%2F
+      PORT: "3001"
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3001/health', timeout=2)"]
+      <<: *health
+    depends_on: {<<: [*mysql-ready, *broker-ready]}
+
+  event-worker:
+    build: {context: ./backend/event-service, target: runtime}
+    <<: *restart
+    command: ["python", "-m", "app.worker"]
+    environment: *event-env
+    healthcheck: {disable: true}
+    depends_on:
+      event-service: {condition: service_healthy}  # migrations have run
+      rabbitmq: {condition: service_healthy}
+
+  # Loads the demo events (local/mysql/seed) once Event's schema exists. Safe to re-run.
+  seed:
+    image: mysql:8.4
+    command: ["sh", "-c", "mysql -h mysql -u event_service -pticketto-local event_service < /seed/event_service.sql && echo 'seed: demo events loaded'"]
+    volumes:
+      - ./local/mysql/seed:/seed:ro
+    depends_on:
+      event-service: {condition: service_healthy}
+
+  # --- Queue Service ------------------------------------------------------------------
+
+  queue-migrate:
+    <<: *queue-image
+    command: ["alembic", "upgrade", "head"]
+    environment: &queue-env
+      MYSQL_URL: mysql+asyncmy://queue_service:ticketto-local@mysql:3306/queue_service
+      REDIS_URL: redis://queue-redis:6379/0
+      RABBITMQ_URL: amqp://queue-service:ticketto-local@rabbitmq:5672/%2F
+      # The shared broker owns the topology; Queue only checks its own queues exist.
+      RABBITMQ_DECLARE_TOPOLOGY: "false"
+      JWT_PRIVATE_KEY_PATH: /keys/jwt_private.pem
+      JWT_KID: queue-local-1
+      LOG_LEVEL: INFO
+      LOG_FORMAT: text
+    volumes: &queue-volumes
+      - admission-keys:/keys:ro
+    depends_on:
+      <<: *mysql-ready
+      admission-keys: {condition: service_completed_successfully}
+
+  queue-api:
+    <<: [*queue-image, *restart]
+    environment: *queue-env
+    volumes: *queue-volumes
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"]
+      <<: *health
+    depends_on: &after-queue-migrate
+      queue-migrate: {condition: service_completed_successfully}
+      queue-redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  queue-admitter:  # exactly one, always
+    <<: [*queue-image, *restart]
+    command: ["python", "-m", "workers.admitter"]
+    environment: *queue-env
+    volumes: *queue-volumes
+    healthcheck:
+      test: ["CMD", "python", "-m", "workers.healthcheck", "admitter"]
+      <<: *health
+    depends_on: *after-queue-migrate
+
+  queue-consumer:  # exits on purpose if a thread crashes; restart brings it back
+    <<: [*queue-image, *restart]
+    command: ["python", "-m", "workers.consumer"]
+    environment: *queue-env
+    volumes: *queue-volumes
+    healthcheck:
+      test: ["CMD", "python", "-m", "workers.healthcheck", "consumer"]
+      <<: *health
+      start_period: 20s
+    depends_on: *after-queue-migrate
+
+  # --- Reservation Service ------------------------------------------------------------
+
+  reservation-service:
+    build: ./backend/reservation-service
+    <<: *restart
+    # Reads Queue's public key from the shared volume into the variable the service expects.
+    entrypoint:
+      - sh
+      - -c
+      - export ADMISSION_TOKEN_PUBLIC_KEY="$$(cat /keys/queue-local-1.public.pem)" && exec java -XX:MaxRAMPercentage=75 -jar /app/app.jar
+    environment:
+      DB_HOST: mysql
+      DB_NAME: reservation_db
+      DB_USERNAME: reservation_service
+      DB_PASSWORD: ticketto-local
+      REDIS_HOST: reservation-redis
+      RABBITMQ_URL: amqp://reservation-service:ticketto-local@rabbitmq:5672/%2F
+      ADMISSION_TOKEN_ALGORITHM: RS256
+    volumes:
+      - admission-keys:/keys:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && read -r line <&3 && [[ $$line == *' 200 '* ]]"]
+      <<: *health
+      start_period: 60s
+    depends_on:
+      <<: [*mysql-ready, *broker-ready]
+      reservation-redis: {condition: service_healthy}
+      admission-keys: {condition: service_completed_successfully}
+
+  # --- Checkout Service ---------------------------------------------------------------
+
+  checkout-service:
+    build: {context: ./backend/checkout-service, target: runtime}
+    <<: *restart
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3002 --workers 2 --threads 4 'app.main:create_app()'"
+    environment: &checkout-env
+      DATABASE_URL: mysql+pymysql://checkout_service:ticketto-local@mysql:3306/checkout_service
+      RABBITMQ_URL: amqp://checkout-service:ticketto-local@rabbitmq:5672/%2F
+      RESERVATION_BASE_URL: http://reservation-service:8081
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      # Throwaway fallback (not a Stripe credential) so the API boots without Stripe.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_test_local}
+      PORT: "3002"
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3002/health', timeout=2)"]
+      <<: *health
+    depends_on: {<<: [*mysql-ready, *broker-ready]}
+
+  checkout-worker:
+    build: {context: ./backend/checkout-service, target: runtime}
+    <<: *restart
+    command: ["python", "-m", "app.worker"]
+    environment: *checkout-env
+    healthcheck: {disable: true}
+    depends_on:
+      checkout-service: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  # --- Ticket Service -----------------------------------------------------------------
+
+  ticket-service:
+    build: {context: ./backend/ticket-service, target: runtime}
+    <<: *restart
+    command: sh -c "alembic upgrade head && exec gunicorn --bind 0.0.0.0:3006 --workers 2 'app.main:create_app()'"
+    environment: &ticket-env
+      DATABASE_URL: mysql+pymysql://ticket_service:ticketto-local@mysql:3306/ticket_service
+      RABBITMQ_URL: amqp://ticket-service:ticketto-local@rabbitmq:5672/%2F
+      PORT: "3006"
+      # Identity from the gateway's headers, as in AWS.
+      AUTH_MODE: gateway
+      QR_SIGNING_KEYS: local:local-development-qr-signing-secret-change-me
+      QR_ACTIVE_KEY_ID: local
+      # Fills in event details on TicketIssued (Notification sends the ticket email).
+      EVENT_SERVICE_URL: http://event-service:3001
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3006/health', timeout=2)"]
+      <<: *health
+    depends_on: {<<: [*mysql-ready, *broker-ready]}
+
+  ticket-worker:
+    build: {context: ./backend/ticket-service, target: runtime}
+    <<: *restart
+    command: ["python", "-m", "app.worker"]
+    environment: *ticket-env
+    healthcheck: {disable: true}
+    depends_on:
+      ticket-service: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  # --- User Service -------------------------------------------------------------------
+
+  user-service:
+    build: {context: ./backend/user-service, target: runtime}
+    <<: *restart
+    command: sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log"
+    environment: &user-env
+      AWS_REGION: us-east-1
+      # cognito-local doesn't check credentials, but boto3 needs some.
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      COGNITO_ENDPOINT: http://cognito-local:9229
+      COGNITO_USER_POOL_ID: *pool-id
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: db_user
+      DB_USER: user_service
+      DB_PASSWORD: ticketto-local
+      RABBITMQ_URL: amqp://user-service:ticketto-local@rabbitmq:5672/%2F
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      <<: *health
+    depends_on:
+      <<: *mysql-ready
+      cognito-local: {condition: service_started}
+
+  user-worker:
+    build: {context: ./backend/user-service, target: runtime}
+    <<: *restart
+    command: ["python", "-m", "app.worker"]
+    environment: *user-env
+    healthcheck: {disable: true}
+    depends_on:
+      user-service: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  # --- Notification Service -----------------------------------------------------------
+  # Sends every email (tickets, new events, cancellations, refunds) and keeps the in-app
+  # notifications. Two ECS services in AWS: the worker and the API.
+
+  notification-worker:
+    build: {context: ./backend/notification-service, target: runtime}
+    <<: *restart
+    command: ["sh", "-c", "alembic upgrade head && exec python -m app.worker"]
+    environment: &notification-env
+      DATABASE_URL: mysql+pymysql://notification_service:ticketto-local@mysql:3306/db_notification
+      RABBITMQ_URL: amqp://notification-service:ticketto-local@rabbitmq:5672/%2F
+      USER_SERVICE_URL: http://user-service:8000
+      EVENT_SERVICE_URL: http://event-service:3001
+      EMAIL_BACKEND: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      EMAIL_FROM: Ticketto <notifications@ticketto.local>
+      LOG_LEVEL: INFO
+    healthcheck: {disable: true}
+    depends_on:
+      <<: [*mysql-ready, *broker-ready]
+      user-service: {condition: service_healthy}
+      mailpit: {condition: service_started}
+
+  notification-api:
+    build: {context: ./backend/notification-service, target: runtime}
+    <<: *restart
+    environment: *notification-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health', timeout=2)"]
+      <<: *health
+    depends_on:
+      notification-worker: {condition: service_started}  # the worker runs the migrations
+
+  # --- Smoke test ---------------------------------------------------------------------
+  # docker compose run --rm smoke-test   starts the stack if needed, waits for it, then tests
+
+  smoke-test:
+    image: python:3.12-slim
+    profiles: ["test"]
+    command: ["python", "/scripts/smoke_test.py"]
+    volumes:
+      - ./local/scripts:/scripts:ro
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      gateway: {condition: service_healthy}
+      frontend: {condition: service_healthy}
+      event-worker: {condition: service_started}
+      queue-api: {condition: service_healthy}
+      queue-admitter: {condition: service_healthy}
+      queue-consumer: {condition: service_healthy}
+      reservation-service: {condition: service_healthy}
+      checkout-worker: {condition: service_started}
+      ticket-worker: {condition: service_started}
+      user-worker: {condition: service_started}
+      notification-api: {condition: service_healthy}
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  cognito-data:
+  admission-keys:

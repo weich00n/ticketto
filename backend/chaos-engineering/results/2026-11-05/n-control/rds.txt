@@ -1,0 +1,2 @@
+CPUUtilization max: 27.63333333333333
+DatabaseConnections max: 57.0
